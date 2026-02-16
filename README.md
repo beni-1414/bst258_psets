@@ -70,3 +70,11 @@ including their basic anatomy.*
 For some perspective on why one might adopt such a setup, consider reading
 [this brief piece](https://doi.org/10.1093/biostatistics/kxq028) by David
 Donoho.
+
+## Tips for renv
+- Use the required Rstudio version
+- renv::status() tells you the status of the packages and which ones need to be installed
+- Install RTools4x to match the R version and install packages, as some of them come as binaries and need to be compiled on site.
+- renv::restore() recreate the library
+- .libPaths() allows you to check if the library is activated
+- renv::activate() activates the environment.
