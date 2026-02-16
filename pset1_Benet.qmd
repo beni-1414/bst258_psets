@@ -1,0 +1,266 @@
+---
+title: "Problem Set #1"
+subtitle: "BST 258: Causal Inference -- Theory and Practice"
+author: "Benet Fité Abril"
+date: "19/02/2026"
+format:
+  pdf:
+    documentclass: scrartcl
+    papersize: letter
+    fontsize: 11pt
+    geometry:
+      - margin=1in
+      - heightrounded
+    number-sections: false
+    colorlinks: true
+    link-citations: true
+    callout-appearance: simple
+    callout-icon: false
+    # figure options
+    fig-width: 6
+    fig-asp: 0.618
+    fig-cap-location: bottom
+    # code block options
+    code-line-numbers: true
+bibliography: refs.bib
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| label: global-setup
+library(here)
+```
+
+\footnotesize
+**Problem set policies:** Please provide concise, clear answers for each
+question. Note that only writing the result of a calculation without
+explanation is not sufficient. For problems involving \textsf{R}, include the
+code in your solution, along with any figures or tables.
+
+Please submit your problem set via Canvas in PDF, alongside the corresponding
+\textsf{Quarto} (`.qmd`) source file.
+
+We encourage you to discuss problems with other students, but you must
+write your final answer in your own words. Solutions prepared "in
+committee" are not acceptable. If you do collaborate with classmates on a
+problem, please list your collaborators on your solution. Similarly, while you
+may find the use of ChatGPT and related tools helpful, disclosing your use of
+them is required to adhere to academic/intellectual honesty.
+
+::: {.callout-warning title="Coding Standards"}
+Make sure to write code that is modular and reusable, making use of functions
+or classes as necessary. Make sure to use variable names that are descriptive
+--- that is, human parse-able (e.g., not `x` or `this_var`) --- while favoring
+conciseness. Write brief documentation for any functions or classes as well as
+any unit tests necessary to ensure that your code is working as expected.
+Finally, make to set a seed for the PRNG so that any random aspects of your
+analysis (e.g., Monte Carlo simulation experiments, sample-splitting) are
+reproducible.
+:::
+
+{{< pagebreak >}}
+
+
+## Question 2: Additive Treatment Effects
+
+Consider an additive treatment effect model, i.e., $\theta = Y_i(1) - Y_i(0)$ for all $i$, so $Y_i(1) = Y_i(0) + \theta$.Show that $\mathbb{V}(Y_i(1)) = \mathbb{V}(Y_i(0))$ and that the correlation $\rho(Y_i(1), Y_i(0)) = 1$, where expectations are sample expectations, i.e.,:$$P_n[Y_i(1)] := \frac{1}{n} \sum_{i=1}^{n} Y_i(1)$$
+
+:::{.callout-note title="Part A: Show that $\mathbb{V}(Y_i(1)) = \mathbb{V}(Y_i(0))$"}
+1. First, we apply the variance to both sides of $Y_i(1) = Y_i(0) + \theta$:
+$$\mathbb{V}(Y_i(1)) = \mathbb{V}(Y_i(0) + \theta)$$
+2. Then, we substitute the variances by the definition of variance $\mathbb{V}(X) = P_n[(X - P_n[X])^2]$, using $P_n$ instead of the expectations:
+$$\mathbb{V}(Y_i(0) + \theta) = P_n\left[ \left( (Y_i(0) + \theta) - P_n[Y_i(0) + \theta] \right)^2 \right]$$
+3. Since $P_n$ is linear, you can do $P_n[Y_i(0) + \theta] = P_n[Y_i(0)] + \theta$, and things cancel out:
+$$P_n\left[ \left( Y_i(0) + \theta - P_n[Y_i(0)] - \theta \right)^2 \right] = P_n\left[ \left( Y_i(0) - P_n[Y_i(0)] \right)^2 \right] = \mathbb{V}(Y_i(0))$$
+Which finished our proof. 
+:::
+
+:::{.callout-note title="Part B: Show that $\rho(Y_i(1), Y_i(0)) = 1$"}
+The definition of correlation is:
+$$\rho(X, Y) = \frac{\text{Cov}(X, Y)}{\sqrt{\mathbb{V}(X)\mathbb{V}(Y)}}$$
+In the numerator:
+$$\text{Cov}(Y_i(1), Y_i(0)) = \text{Cov}(Y_i(0) + \theta, Y_i(0)) = \text{Cov}(Y_i(0), Y_i(0)) = \mathbb{V}(Y_i(0))$$
+Where I substituted $Y_i(1) = Y_i(0) + \theta$, applied that the Covariance of a RV + a constant is the same as the covariance of the RV itself, and the Covariance of a variable with itself is the Variance:
+$$\text{Cov}(X, X) = \mathbb{E}[(X - \mathbb{E}[X])(X - \mathbb{E}[X])] = \mathbb{E}[(X - \mathbb{E}[X])^2] = V(X)$$
+In the denominator, we already showed that $\mathbb{V}(Y_i(1)) = \mathbb{V}(Y_i(0))$, so it also becomes $\mathbb{V}(Y_i(0))$. Finally:
+$$\rho(Y_i(1), Y_i(0)) = \frac{\mathbb{V}(Y_i(0))}{\mathbb{V}(Y_i(0))} = 1$$
+:::
+
+
+{{< pagebreak >}}
+
+
+## Question 3
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(future.apply)
+
+# 1. Setup Parallel Processing for Windows
+n_cores <- parallel::detectCores(logical = FALSE) - 3 
+plan(multisession, workers = n_cores)
+
+# 2. Parameters
+n_groups <- c(10, 25, 50, 100, 250)
+nsim <- 1000
+B <- 10000
+alpha <- 0.05
+
+run_experiment <- function(n_total) {
+    results_list <- future_lapply(1:nsim, function(s) {
+      
+      # Step 2: Independent Potential Outcomes
+      y1 <- rnorm(n_total, mean = 1/10, sd = 1/4)
+      y0 <- rnorm(n_total, mean = 0,    sd = 1/4)
+      
+      # Step 3: Completely randomized assignment (balanced)
+      a <- sample(rep(c(0, 1), each = n_total/2))
+      y_obs <- ifelse(a == 1, y1, y0)
+      
+      # Observed Diff-in-Means
+      t_obs <- mean(y_obs[a == 1]) - mean(y_obs[a == 0])
+      
+      # --- Weak Null (Neyman / t-test) ---
+      p_weak <- t.test(y_obs ~ a)$p.value
+      
+      # --- Sharp Null (Fisher / Permutations) ---
+      null_dist <- numeric(B)
+      for(b in 1:B) {
+        a_perm <- sample(a)
+        null_dist[b] <- mean(y_obs[a_perm == 1]) - mean(y_obs[a_perm == 0])
+      }
+      p_sharp <- mean(abs(null_dist) >= abs(t_obs))
+      
+      return(c(p_weak < alpha, p_sharp < alpha))
+    }, future.seed = TRUE)
+
+  res_matrix <- do.call(rbind, results_list)
+  return(tibble(n = n_total * 2, 
+                power_weak = mean(res_matrix[,1]), 
+                power_sharp = mean(res_matrix[,2])))
+}
+
+results_file <- "simulation_results.rds"
+
+if (file.exists(results_file)) {
+  # Load the existing data if it exists
+  final_results <- readRDS(results_file)
+} else {
+  # This code only runs if the file is missing
+  cat("Starting simulation on Windows using", n_cores, "cores...\n")
+  final_results <- map_df(n_groups, run_experiment)
+  saveRDS(final_results, results_file)
+}
+
+results_long <- final_results %>%
+  pivot_longer(cols = starts_with("power"), 
+               names_to = "test_type", 
+               values_to = "power") %>%
+  mutate(test_type = recode(test_type, 
+                            "power_weak" = "Weak Null (Neyman)", 
+                            "power_sharp" = "Sharp Null (Fisher)"))
+
+# 3. Create the figure
+ggplot(results_long, aes(x = n, y = power, color = test_type, linetype = test_type)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+  labs(title = "Power Comparison: Neyman (Weak) vs. Fisher (Sharp) Null",
+       x = "Total Sample Size (n)",
+       y = "Power (Rejection Rate)",
+       color = "Hypothesis Type",
+       linetype = "Hypothesis Type") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold"))
+
+final_results
+
+```
+
+In this simulation, the power curves for the Weak Null (Neyman) and the Sharp Null (Fisher) are nearly indistinguishable. This result is expected because the simulation was designed with a constant treatment effect ($ATE = 0.1$ for everyone) and homoscedastic errors ($\sigma^2 = 1/16$ in both groups). The interpretation of the results is:
+
+* *Fisher implies Neyman*: If a treatment works on average, it must have worked for at least some individuals.
+* *Consistency*: As n increases from 20 to 500, the power increases from ~0.09 to ~0.88. This demostrates that as you gather more data, your ability to detect a true effect (in this case, $ATE = 0.1$) increases.
+* *Small sample behavior*: Even if the the permutation test of the Sharp Null and the t-test of the weak null are equivalent when $n \rightarrow \infty$ (asymptotic behavior), in the small samples like n=20 we can see that the t-test is a bit more conservative than the Fisher's Exact test, because it relies on a large-sample Normal approximation.
+
+To better understand the difference between both hypotheses, it helps to imagine one scenario where the lines would have been very different: Treatment effect heterogeneity, in which some people get hurt, some people get cured, but on average, it has no effect. This would make the Weak null hover around $\alpha$, but the Sharp null would be rejected at a high rate, as it would see that the potential outcomes of the treated vs untreated are different at the individual level.
+
+
+{{< pagebreak >}}
+
+
+## Question 4: Completely Randomized experiment
+
+:::{.callout-note title="Part A: Solving the linear program"}
+To minimize the program, we do the partial derivatives and set both of them to zero:
+$$f(\alpha, \beta) = \frac{1}{2n} \sum_{i=1}^{n} (Y_i - \alpha - \beta A_i)^2$$
+
+1. Solving for $\alpha$
+
+$$\frac{\partial f}{\partial \alpha} = \frac{1}{2n} \sum_{i=1}^{n} 2(Y_i - \alpha - \beta A_i)(-1) = 0 \implies \sum_{i=1}^{n} (Y_i - \alpha - \beta A_i)= 0 \implies$$ 
+$$n\bar{Y} - n\alpha - m\beta = 0 \implies \alpha + \frac{m}{n}\beta = \bar{Y}\quad \text{(Eq. 1)}$$
+Where we used the definition of the empirical average of $Y_i$, and that m is the number of treated patients (A is a binary indicator that is 1 when treated and 0 when not treated).
+
+2. Solving for $\beta$
+
+$$\frac{\partial f}{\partial \beta} = \frac{1}{2n} \sum_{i=1}^{n} 2(Y_i - \alpha - \beta A_i)(-A_i) = 0 \implies \sum_{i=1}^{n} A_i(Y_i - \alpha - \beta A_i) = 0 \implies $$
+$$m\bar{Y}_1 - m\alpha - m\beta = 0 \implies \alpha + \beta = \bar{Y}_1 \quad \text{(Eq. 2)}$$
+Where we used $\sum A_i Y_i = m\bar{Y}_1$ and the fact that $A_i$ and $A_i^2$ behave the same.
+
+3. Solving the system
+
+If you substract Eq.1 - Eq.2, you get:
+$$(\alpha + \beta) - (\alpha + \frac{m}{n}\beta) = \bar{Y}_1 - \bar{Y} \implies \beta \left( 1 - \frac{m}{n} \right) = \bar{Y}_1 - \bar{Y} \implies \beta \left( \frac{n-m}{n} \right) = \bar{Y}_1 - \bar{Y}$$
+Then, you can use the descomposition of $\bar{Y}$:
+$$\bar{Y} = \frac{m}{n}\bar{Y}_1 + \left( \frac{n-m}{n} \right)\bar{Y}_0$$
+And substitute:
+$$\beta \left( \frac{n-m}{n} \right) = \bar{Y}_1 - \left[ \frac{m}{n}\bar{Y}_1 + \left( \frac{n-m}{n} \right)\bar{Y}_0 \right] = \bar{Y}_1 \left( \frac{n-m}{n} \right) - \bar{Y}_0 \left( \frac{n-m}{n} \right)$$
+:::
+:::{.callout-note}
+If we divide by the common factor:
+$$\hat{\beta} = \bar{Y}_1 - \bar{Y}_0$$
+Substituting above, alpha comes out to be easily
+$$\hat{\alpha} = \bar{Y}_0$$
+So alpha represents the average of the control group, and beta the difference in means between groups (in the observed data).
+:::
+
+:::{.callout-note title="Part B: Is $\beta$ a valid estimator of the ATE?"}
+Yes, $\hat{\beta}$ is a valid estimator of the Average Treatment Effect (ATE). To prove this, we need to show it is unbiased (it converges to the target on average) and consistent (it converges to the parameter as n grows to infinity).
+
+*Unbiased*: we need to show that $\mathbb{E}[\hat{\beta}] = \mathbb{E}[Y(1) - Y(0)]$.
+
+1. The sample mean $\bar{Y}_a$ is an unbiased estimator of the population mean for that subgroup $\mathbb{E}[\bar{Y}_a] = \mathbb{E}[Y | A=a]$
+
+2. Under causal consistency (assumes that A makes the rellevant potential outcome materialize), we can do $\mathbb{E}[Y | A=a] = \mathbb{E}[Y(a) | A=a]$
+
+3. Exchangeability: Since we are in a randomized control trial, the treated group A=1 does not have any distinct characteristics that would make their potential outcome $Y(1)$ different than the one of the control group people, meaning that we can assume that the expectation of Y(1) for the treated group is representative of the whole population: $\mathbb{E}[Y(1) | A=1] = \mathbb{E}[Y(1)]$
+
+Adding all of this together, we can show that the estimator $\beta$ is unbiased:
+$$\mathbb{E}[\hat{\beta}] = \mathbb{E}[\bar{Y}_1 - \bar{Y}_0] = \mathbb{E}[\bar{Y}_1] - \mathbb{E}[\bar{Y}_0] = \mathbb{E}[Y(1)] - \mathbb{E}[Y(0)] = \text{ATE}$$
+
+The weak law of large numbers guarantees that $\bar{Y}_1 \xrightarrow{p} \mathbb{E}[Y | A=1]$, meaning that the sample average will collapse to the population average, making $\hat{\beta}$ a consistent estimator of the ATE.
+:::
+
+
+{{< pagebreak >}}
+
+## Question 5: Extra credit
+:::{.callout-note title="Answer"}
+I think that the explanation for this discrepancy between the RCT and the observational data is that the selection of people who participated in the RCT out of the total lung cancer population was not random at all. Maybe the RCT participants were selected from the people that were already in the hospitals (sickest), or asked for volunteers and the sickest ones came up first, as the healthier lung cancer patients did not feel the need to participate in an experiment. This selection bias could have caused all Doomed, Hurt and Helped patients to go to the RCT, and leave only Immune patients in the observational study, who were going to survive regardless of the treatment.
+
+This suggests that while an RCT is very powerful to demonstrate the causal effect of a treatment within its sample, the generalization of the results is heavily dependent on how the sampling process was performed, and researchers need to be very careful in every step of the process. In this thought experiment, I would investigate on the "random sampling strategy", and if my hypothesis is correct, trust the RCT, and disregard the observational study as a low-risk population where the drug was not toxic to begin with.
+
+:::
+
+{{< pagebreak >}}
+
+## References
+
+GenAI (GEMINI) was used throughout this problem set to write code, write latex and discuss the problems. I always prompt in a way that the response guides my thinking rather than providing the answer right away, which promotes a better learning experience.
+
+::: {#refs}
+:::
+
