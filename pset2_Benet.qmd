@@ -1,0 +1,345 @@
+---
+title: "Problem Set #2"
+subtitle: "BST 258: Causal Inference -- Theory and Practice"
+author: "Benet Fité Abril"
+date: "2026/03/26"
+format:
+  pdf:
+    documentclass: scrartcl
+    papersize: letter
+    fontsize: 11pt
+    geometry:
+      - margin=1in
+      - heightrounded
+    number-sections: false
+    colorlinks: true
+    link-citations: true
+    callout-appearance: simple
+    callout-icon: false
+    # figure options
+    fig-width: 6
+    fig-asp: 0.618
+    fig-cap-location: bottom
+    # code block options
+    code-line-numbers: true
+bibliography: refs.bib
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| label: global-setup
+library(here)
+```
+
+\footnotesize
+**Problem set policies:** Please provide concise, clear answers for each
+question. Note that only writing the result of a calculation without
+explanation is not sufficient. For problems involving \textsf{R}, include the
+code in your solution, along with any figures or tables.
+
+Please submit your problem set via Canvas in PDF, alongside the corresponding
+\textsf{Quarto} (`.qmd`) source file.
+
+We encourage you to discuss problems with other students, but you must
+write your final answer in your own words. Solutions prepared "in
+committee" are not acceptable. If you do collaborate with classmates on a
+problem, please list your collaborators on your solution. Similarly, while you
+may find the use of ChatGPT and related tools helpful, disclosing your use of
+them is required to adhere to academic/intellectual honesty.
+
+::: {.callout-warning title="Coding Standards"}
+Make sure to write code that is modular and reusable, making use of functions
+or classes as necessary. Make sure to use variable names that are descriptive
+--- that is, human parse-able (e.g., not `x` or `this_var`) --- while favoring
+conciseness. Write brief documentation for any functions or classes as well as
+any unit tests necessary to ensure that your code is working as expected.
+Finally, make to set a seed for the PRNG so that any random aspects of your
+analysis (e.g., Monte Carlo simulation experiments, sample-splitting) are
+reproducible.
+:::
+
+{{< pagebreak >}}
+
+
+## Question 1
+
+:::{.callout-note title="a. Construct the corresponding DAG for the SCM given above"}
+Using the SCM equations, we can easily build a DAG by drawing arrows from the variable left of the equation to any variables right of the equation.
+
+```{mermaid}
+graph LR
+    A(A) --> M(M)
+    M(M) --> Y(Y)
+    A(A) --> Y(Y)
+```
+
+:::
+
+:::{.callout-note title="b. Show that the joint distribution $p(a,m,y)$ can be factorized as $p(y|m,a)p(m|a)p(a)$"}
+Given the Markovian properties of DAGs, they obey the law of factorization, which states that the $P(X)$ where X is the set of all variables in the DAG is the multiplication of $p(x_j|pa(x_j))$, where pa(x) are the parents of x. By looking at the DAG:
+
+* $pa(A) = \emptyset$ (A has no parents).
+* $pa(M) = \{A\}$.
+* $pa(Y) = \{A, M\}$.
+
+$$p(a, m, y) = \prod_{j} p(x_j | pa(x_j))$$
+$$p(a, m, y) = p(a | pa(A)) \cdot p(m | pa(M)) \cdot p(y | pa(Y))$$
+$$p(a, m, y) = p(a) \cdot p(m | a) \cdot p(y | m, a)$$
+:::
+
+:::{.callout-note title="c.Assuming the exogenous variables $(\epsilon_A, \epsilon_M, \epsilon_Y)$ have densities $p_{\epsilon_A}$, $p_{\epsilon_M}$, and $p_{\epsilon_Y}$ , write explicit expressions for the following conditional densities in terms of these error densities and the structural equations"}
+
+To do this, we do a change of variables for probability density functions (PDFs), the formula for which is:
+
+$$p_Y(y) = p_X(g^{-1}(y)) \cdot \left| \frac{d}{dy} g^{-1}(y) \right|$$
+Where $Y = g(X)$. In our case, Y = A,M,Y and X=the error terms:
+
+* For A, since there are no other terms, we get $p(a) = p_{\epsilon_A}(a)$
+* For M, we need to get $g^{-1}(M)$. We solve for the error and get $g^{-1} : \epsilon_M = M - \alpha a$. Since the derivative of g^-1 with respect to $M$ is 1, the density of M given a is just the error evaluated at that point: $p(m|a) = p_{\epsilon_M}(m - \alpha a)$
+* For Y, we need to get $g^{-1}(Y)$. We solve for the error and get $g^{-1} : \epsilon_Y = Y - \beta a - \gamma m$. Since the derivative of g^-1 with respect to Y is 1, we again get the $p(y|m, a) = p_{\epsilon_Y}(y - \beta a - \gamma m)$.
+
+$$\begin{cases}
+p(a) = p_{\epsilon_A}(a) \\
+p(m|a) = p_{\epsilon_M}(m - \alpha a) \\
+p(y|m, a) = p_{\epsilon_Y}(y - \beta a - \gamma m)
+\end{cases}$$
+
+:::
+
+:::{.callout-note title="d. Suppose we intervene on 𝐴 by the operator do(a=a*). Write down the modified SCM that results from this intervention."}
+
+This is represented in the SCM by just substituting the equation generating A by the assigned variable, and substituting A = a* everywhere else:
+$$\begin{cases}
+A = a^* \\
+M = \alpha a^* + \epsilon_M \\
+Y = \beta a^* + \gamma M + \epsilon_Y
+\end{cases}$$
+:::
+
+:::{.callout-note title="e. Derive an expression for the post-intervention density $p(y|do(A=a*))$ in terms of the conditional densities derived above. In your derivation, indicate clearly where any properties of the NPSEM-IE are used."}
+
+To derive this expression, we need to marginalize M out of $p(a,m|do(A=a*))$. The independent errors property of NPSEM-IE is used to assume that intervening on A does not change the structural equations for M and Y, nor the conditional distributions $p(y|m, a)$ and $p(m|a)$.
+
+We first can write the new factorized expression from the intervened system:
+$$p(m, y \mid do(A=a^*)) = p(y \mid m, A=a^*) \cdot p(m \mid A=a^*)$$
+To marginalize out m, we simply integrate over all values of M:
+$$p(y \mid do(A=a^*)) = \int p(y \mid m, a^*) \cdot p(m \mid a^*) \, dm$$
+Finally, we substitute by the expressions derived above, changing A for a*:
+$$p(y \mid do(A=a^*)) = \int p_{\epsilon_Y}(y - \beta a^* - \gamma m) \cdot p_{\epsilon_M}(m - \alpha a^*) \, dm$$
+:::
+
+:::{.callout-note title="f. Let the marginal causal effect (MCE) of $A$ on $Y$ be defined as:$MCE(a^*) = \frac{d}{da^*} \mathbb{E}[Y \mid do(A=a^*)]$. Now, using the SCM's structural equations and the NPSEM-IE assumptions, prove that:$\mathbb{E}[Y \mid do(A=a^*)] = \beta a^* + \gamma \alpha a^*$ to deduce that: $MCE(a^*) = \beta + \alpha\gamma$"}
+
+To prove this, we substitute $\mathbb{E}[Y \mid do(A=a^*)]$ for the SCM equations above, and apply the linearity of expectation and the fact that the errors are mean-zero:
+$$\mathbb{E}[Y \mid do(A=a^*)] = \mathbb{E}[\beta a^* + \gamma M(a^*) + \epsilon_Y] = \mathbb{E}[\beta a^* + \gamma \alpha a^* + \gamma \epsilon_M + \epsilon_Y] = $$
+$$\beta a^* + \gamma \alpha a^* + \gamma \mathbb{E}[\epsilon_M] + \mathbb{E}[\epsilon_Y] = \beta a^* + \gamma \alpha a^*$$
+To get the the MCE, we just derive with respect to a*:
+$$MCE(a^*) = \beta + \gamma \alpha$$
+
+>NOTE to self: the marginal causal effect is the effect of increasing the level of a by one unit
+:::
+
+:::{.callout-note title="g. Briefly interpret the previous causal effect in words in terms of the direct and indirect (i.e., mediated) effect of 𝐴 on Y. Consider how to interpret the terms $\beta$ and $\alpha\gamma$ in words (Max four sentences)."}
+
+The previous causal effect represents the increase in Y for every unit of A. $\beta$ represents the direct effect of A on Y, and $\alpha\gamma$ represent the indirect effect of A on Y via the mediator M. As an example, consider A is exercise, Y is longevity, and M is mental health. $\beta$ could represent the effect of exercise on longevity by strengthening the heart (direct), $\alpha$ would represent the effect of exercise on mental health and $\gamma$ the effect of mental health on longevity.
+
+:::
+
+{{< pagebreak >}}
+
+
+## Question 2
+
+:::{.callout-note title="Match the terms with the removed arrows and give a short story of why that arrow is removed by the implementation of that term (Max two sentences per arrow removed)."}
+
+* $U \rightarrow A^*$ - Treatment support, because it ensures that units that are supposed to take A actually take it, so there are minimal external factors that can cause $A^*$ to be different from A.
+* $U \rightarrow A$ - Randomization, because it ensures that unobserved factors have no effect on who receives treatment.
+* $U \rightarrow Y^*$ - Standardization of diagnostic procedures, because it ensures that $Y^*$ is as close as possible to Y, keeping influence of U to a minimum.
+* $A^* \rightarrow Y^*$ - Blinding, because if the doctors do not know which A they are giving, they cannot be biased towards any differential interpretation of Y, ensuring $Y^*$ is a reflection of $Y$ and not influenced by the treatment.
+
+:::
+
+:::{.callout-note title="Discusion with Cassey and Causy about SWIGs"}
+\begin{center}
+\includegraphics[width=0.3\textwidth, angle=90]{swig_complete.jpeg}
+\end{center}
+
+This SWIG differs from the DAG in the sense that it incorporates the external intervention and the potential outcomes. It separates the natural world state from the intervened state by splitting the intervened node, and allows us to read independence assumptions straight off the graph.
+
+The sets of variables that are mutually independent in this SWIG are:
+
+* $\{A(1), A^*(1), Y(1), Y^*(1)\} \perp \perp Z$
+* $U \perp \perp Z$
+
+If I assumed perfect compliance and perfect measurement, it makes no sense keeping $A^*$ and $Y^*$ in the graph as they are equal to their true counterparts. The graph becomes:
+\begin{center}
+\includegraphics[width=0.3\textwidth, angle=90]{swig_simple.jpeg}
+\end{center}
+
+Based on the first SWIG, we can easily extract the factorized distribution based on the markov properties of SWIGs, as we did in question 1: first we identify the parents of each variable, and then we multiply the corresponding conditional probabilities.
+
+This SWIG better captures the causal structure of the RCT because it explicitly includes the imperfect compliance and measurement error of the trial. This allows us to look for the necessary justifications and actions needed to remove arrows like blinding, better treatment support and make the effects identifiable. It also defines the potential outcomes explicitly, allowing for identification of causal effect and testability of assumptions. For example, testing the Exclusion Restriction in the observed data: if the people with Z=1 but $A^*=0$ had a larger effect on $Y^*$ than the group with Z=0, which if true means that there is a placebo effect or poor blinding (measurement confounding).
+
+:::
+
+:::{.callout-note title="Proof of the ITT perspective."}
+
+If we assume that we have perfect randomization and compliance, the intention-to-treat (ITT) becomes the same as the ATE, because being told to take the drug and actually taking it is the same. For the proof, we start with the counterfactual notation:
+$$\text{ITT} = \mathbb{E}[Y(z=1)] - \mathbb{E}[Y(z=0)]$$
+Then we can apply the conditional independence between Y(z) and Z to condition on Z=1 and Z=0, because the distributions are independent:
+$$ITT = \mathbb{E}[Y(z=1) \mid Z=1] - \mathbb{E}[Y(z=0) \mid Z=0]$$
+If we now apply consistency, the potential outcome when z=1 is the same as the observed outcome when Z=1, so:
+$$\mathbb{E}[Y(z=1)] - \mathbb{E}[Y(z=0)] = \mathbb{E}[Y \mid Z=1] - \mathbb{E}[Y \mid Z=0]$$
+
+:::
+
+:::{.callout-note title="Per Protocol perspective"}
+
+1. The PP effect is not identified because the decision to not take the drug ($A^*=0$) can be influenced by unobserved factors (the presence of U in the SWIG above).
+
+2. Conditioning on $A^*$ breaks the benefits of randomization as no unmeasured confounding is no longer guaranteed. For example, if only the healthiest patients (U) can tolerate a drug's side effects and complete the protocol ($A^*=1$), the drug can falsely appear to be more effective than it is as the healthier patients were already predisposed to better outcomes ($Y(A^*=0,1) = 1$).We are effectively turning an RCT into an observational study by conditioning on $A*$.
+
+3. You should assume that people with Z=1 and A*=0 are assigned at random, which means that there is no confounding factors like the previous story that could make a subset of the population drop out at a higher rate. If this is non-realistic, you could try to measure as much of U as possible so that we can assume exchangeability conditional on U, and apply some analytic approach like Inverse probability weighting to balance out the confounders.
+
+4. Noncompliance reduces our ability to capture the true causal effect because the effect of being assigned to Z=1, the intention to treat, is diluted if people do not actually take the drug.
+
+5. Measurement error can be a problem for identification of the causal effect. If the error is random, it increases the variance of our estimate, but if it is associated with any U or with $A^*$ itself it can mask or over-estimate the effect. To mitigate it, strong measurement standards and proper blinding should be implemented to ensure all patients are measured as equally as possible.
+
+:::
+
+
+{{< pagebreak >}}
+
+
+## Question 3
+
+:::{.callout-note title="Given the rules of do-calculus, why would Pearl’s criteria sound reasonable, even if it is ultimately incorrect?"}
+According to do-calculus, $P(y \mid do(a), l) = P(y \mid a, l)$ if $Y$ is d-separated from $A$ by $L$ in a modified graph where arrows into $A$ are removed. In the proposed DAG, if the arrows into Ai are removed the backdoor paths are broken, so the g-formula sounds reasonable.
+
+However, we just learned that for sequential treatments, the g-formula requires sequencial exchangeability, meaning that the outcome must be independent of the treatment observed given the past history. If we follow this assumption we would need A2 to be independent of Y(a1,a2) given the past history. In this case, A2 is not independent of Y(a1,a2) given L2, A1 because conditioning on L2, which is a collider of U2 and A1, opens a correlation between them that allows us to use a path through U1 and L3 to get to Y, meaning they are not truly d-separated. 
+:::
+
+:::{.callout-note title="Simulation study"}
+
+We define the following binary SCM where each variable is a Bernoulli trial based on a linear combination of its parents:
+
+* Exogenous Noise: $U_1, U_2 \sim \text{Bernoulli}(0.5)$
+* A1: $P(A_1=1 \mid U_1) = 0.2 + 0.5U_1$
+* L2: $P(L_2=1 \mid A_1, U_2) = 0.1 + 0.4A_1 + 0.4U_2$
+* A2: $P(A_2=1 \mid U_2) = 0.2 + 0.5U_2$
+* L3: $P(L_3=1 \mid A_2, U_1) = 0.1 + 0.4A_2 + 0.4U_1$
+* Y: $P(Y=1 \mid L_2, L_3) = 0.1 + 0.4L_2 + 0.4L_3$
+
+
+```{r}
+library(tidyverse)
+
+set.seed(42)
+n <- 10^5
+
+# Generate data
+u1 <- rbinom(n, 1, 0.5) 
+u2 <- rbinom(n, 1, 0.5)
+
+# Observed variables following SCM
+a1 <- rbinom(n, 1, 0.2 + 0.5 * u1)
+l2 <- rbinom(n, 1, 0.1 + 0.4 * a1 + 0.4 * u2)
+a2 <- rbinom(n, 1, 0.2 + 0.5 * u2)
+l3 <- rbinom(n, 1, 0.1 + 0.4 * a2 + 0.4 * u1)
+y  <- rbinom(n, 1, 0.1 + 0.4 * l2 + 0.4 * l3)
+
+obs_df <- data.frame(a1, l2, a2, l3, y)
+
+# This computes interventional ground truth
+get_true_p <- function(val_a1, val_a2) {
+  u1_int <- rbinom(n, 1, 0.5)
+  u2_int <- rbinom(n, 1, 0.5)
+  l2_int <- rbinom(n, 1, 0.1 + 0.4 * val_a1 + 0.4 * u2_int)
+  l3_int <- rbinom(n, 1, 0.1 + 0.4 * val_a2 + 0.4 * u1_int)
+  y_int  <- rbinom(n, 1, 0.1 + 0.4 * l2_int + 0.4 * l3_int)
+  return(mean(y_int))
+}
+
+# G-Formula Estimate: sum over l2, l3 of P(y|l2,l3,a1,a2)P(l3|l2,a1,a2)P(l2|a1)
+get_g_formula <- function(val_a1, val_a2) {
+  p_l2_1 <- mean(obs_df$l2[obs_df$a1 == val_a1])
+  
+  res <- 0
+  for (l2_val in c(0, 1)) {
+    for (l3_val in c(0, 1)) {
+      w_l2 <- if(l2_val == 1) p_l2_1 else (1 - p_l2_1)
+      p_l3_1 <- mean(obs_df$l3[obs_df$l2 == l2_val & obs_df$a1 == val_a1 & obs_df$a2 == val_a2])
+      w_l3 <- if(l3_val == 1) p_l3_1 else (1 - p_l3_1)
+      p_y_1 <- mean(obs_df$y[obs_df$l2 == l2_val & obs_df$l3 == l3_val & 
+                             obs_df$a1 == val_a1 & obs_df$a2 == val_a2])
+      res <- res + (p_y_1 * w_l3 * w_l2)
+    }
+  }
+  return(res)
+}
+
+# Results and plotting
+results <- expand.grid(a1 = c(0, 1), a2 = c(0, 1)) %>%
+  rowwise() %>%
+  mutate(True = get_true_p(a1, a2),
+         G_Formula = get_g_formula(a1, a2)) %>%
+  pivot_longer(cols = c(True, G_Formula), names_to = "Method", values_to = "Prob")
+
+ggplot(results, aes(x = Method, y = Prob, fill = Method)) +
+  geom_col() +
+  geom_text(aes(label = round(Prob, 3)), vjust = -0.5, size = 3.5) +
+  facet_wrap(~ a1 + a2, labeller = label_both) +
+  ylim(0, 1) +
+  labs(title = "True Potential Outcomes vs. G-Formula Estimates",
+       y = "P(Y=1 | do(a1, a2))") +
+  theme_minimal()
+```
+This simulation shows that the values indeed do not match and the result is biased.
+
+:::
+
+:::{.callout-note title="Why the g-formula is NOT $P(Y(a_1, a_2) = y)$"}
+
+1. We first start by decomposing the probability with the full set of variables, including the unobserved confounders $U1, U2$ and then trying to simplify it:
+
+$$P(Y(a_1, a_2) = y) = \iint \iint P(Y(a_1, a_2) \mid U_1, U_2, L_2(a_1), L_3(a_2)) P(U_1, U_2, L_2(a_1), L_3(a_2)) \, dU_1 dU_2 dL_2 dL_3$$
+
+2. To simplify term 1, we see that Y is independent of Ui given L2, L3, as they block all available paths, so we can remove them. We can also condition on a1 and a2 because of exchangeability, and finally use consistency ($Y(a_1, a_2) = Y$ if $A_1=a_1, A_2=a_2$) to reach:
+$$P(Y \mid L_2, L_3, A_1=a_1, A_2=a_2)$$
+
+3. To break down the joint distribution of $Ui, Li$, we can factorize the terms using the chain rule and the independence assumptions we see in the SWIG: 
+$$P(U_1, U_2, L_2(a_1), L_3(a_2)) = P(L_2(a_1) \mid U_1, U_2, L_3(a_2)) P(L_3(a_2) \mid U_1, U_2) P(U_1, U_2)$$
+Looking at the SWIG, we can read the following conditional independences:
+
+- $L_2(a_1) \perp \perp \{U_1, L_3(a_2)\} \mid U_2$ (U2 because SWIG division, L3 because of the collider Y not included in the conditioning set)
+- $L_3(a_2) \perp \perp U_2 \mid U_1$
+- $U_1 \perp \perp U_2$ (allows us to break the joint distribution $P(U_1, U_2)$)
+
+Which allow us to simplify the terms, getting rid of the variables that are independent and only keeping the conditioning one:
+
+$$P(L_2(a_1) \mid U_2) P(U_2) \cdot P(L_3(a_2) \mid U_1) P(U_1)$$
+This trick allows us to reverse the iterated expectation and integrate with $dU_2, dU_1$ above to get:
+$$\int \int P(Y \mid L_2, L_3, A_1, A_2) \left[ \int P(L_2(a_1) \mid U_2) P(U_2) \, dU_2 \right] \left[ \int P(L_3(a_2) \mid U_1) P(U_1) \, dU_1 \right] \, dL_2 dL_3$$
+
+$$\int \int P(Y \mid L_2, L_3, A_1, A_2) P(L_2(a_1)) P(L_3(a_2)) \, dL_2 dL_3$$
+
+Using exchangeability and consistency, we can get: $P(L_2(a_1)) = P(L_2 \mid A_1=a_1)$ and same for $L_3(a_2)$. Substituting this yields:
+
+$$\int \int P(Y \mid L_2, L_3, A_1, A_2) P(L_2 \mid A_1=a_1) P(L_3 \mid A_2=a_2) \, dL_2 dL_3$$
+
+Which is not the same as the g-formula that appeared in the prompt, mainly because of the $L_3$ term: $P(L_3 \mid A_2=a_2) \neq P(L_3 \mid L_2, A_1, A_2)$
+
+
+This difference, as stated above, is because the assumption of sequential exchangeability, where the outcome must be independent of the treatment k given it's past history is broken due to the L2 collider effect I discussed in Q3.1. The SWIG actually shows that the counterfactual L3(a2) is actually independent of L2(a1) and a1, so there is no need to include them in the conditioning set, as doing so actually breaks the estimation!
+:::
+
+{{< pagebreak >}}
+
+
+## References
+GenAI (GEMINI) was used throughout this problem set to write code, write latex and discuss the problems. I always prompt in a way that the response guides my thinking rather than providing the answer right away, which promotes a better learning experience.
+
+::: {#refs}
+:::
+
