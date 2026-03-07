@@ -172,14 +172,17 @@ The sets of variables that are mutually independent in this SWIG are:
 * $\{A(1), A^*(1), Y(1), Y^*(1)\} \perp \perp Z$
 * $U \perp \perp Z$
 
-If I assumed perfect compliance and perfect measurement, it makes no sense keeping $A^*$ and $Y^*$ in the graph as they are equal to their true counterparts. The graph becomes:
+If I assumed perfect compliance and perfect measurement, we can make some arrows dissapear: $U \rightarrow A^*$ because we have perfect compliance, and $U,A^* \rightarrow Y^*$ because perfect measurement. Since A and A* are now the same, in my opinion they could be collapsed in the same variable, but I will keep them for consistency with the next exercice. The graph becomes:
 \begin{center}
-\includegraphics[width=0.3\textwidth, angle=90]{swig_simple.jpeg}
+\includegraphics[width=0.6\textwidth]{swig_simple.jpeg}
 \end{center}
 
-Based on the first SWIG, we can easily extract the factorized distribution based on the markov properties of SWIGs, as we did in question 1: first we identify the parents of each variable, and then we multiply the corresponding conditional probabilities.
+We can easily extract the factorized distribution based on the markov properties of SWIGs, as we did in question 1: first we identify the parents of each variable, and then we multiply the corresponding conditional probabilities. This yields:
+$$p(U, A(1), A^*(1), Y(1), Y^*(1)) = p(U)p(A(1) \mid U)p(A^*(1) \mid A)p(Y(1) \mid A^*(1), U)p(Y^*(1) \mid Y(1))$$
+Which is not the same as the statement in the prompt, but it is reasonable according to my assumptions.
 
-This SWIG better captures the causal structure of the RCT because it explicitly includes the imperfect compliance and measurement error of the trial. This allows us to look for the necessary justifications and actions needed to remove arrows like blinding, better treatment support and make the effects identifiable. It also defines the potential outcomes explicitly, allowing for identification of causal effect and testability of assumptions. For example, testing the Exclusion Restriction in the observed data: if the people with Z=1 but $A^*=0$ had a larger effect on $Y^*$ than the group with Z=0, which if true means that there is a placebo effect or poor blinding (measurement confounding).
+
+The SWIG in Figure 1 better captures the causal structure of the RCT because it explicitly includes the imperfect compliance and measurement error of the trial. This allows us to look for the necessary justifications and actions needed to remove arrows like blinding, better treatment support and make the effects identifiable. It also defines the potential outcomes explicitly, allowing for identification of causal effect and testability of assumptions. For example, testing the Exclusion Restriction in the observed data: if the people with Z=1 but $A^*=0$ had a larger effect on $Y^*$ than the group with Z=0, which if true means that there is a placebo effect or poor blinding (measurement confounding).
 
 :::
 
@@ -217,12 +220,12 @@ $$\mathbb{E}[Y(z=1)] - \mathbb{E}[Y(z=0)] = \mathbb{E}[Y \mid Z=1] - \mathbb{E}[
 :::{.callout-note title="Given the rules of do-calculus, why would Pearl’s criteria sound reasonable, even if it is ultimately incorrect?"}
 According to do-calculus, $P(y \mid do(a), l) = P(y \mid a, l)$ if $Y$ is d-separated from $A$ by $L$ in a modified graph where arrows into $A$ are removed. In the proposed DAG, if the arrows into Ai are removed the backdoor paths are broken, so the g-formula sounds reasonable.
 
-However, we just learned that for sequential treatments, the g-formula requires sequencial exchangeability, meaning that the outcome must be independent of the treatment observed given the past history. If we follow this assumption we would need A2 to be independent of Y(a1,a2) given the past history. In this case, A2 is not independent of Y(a1,a2) given L2, A1 because conditioning on L2, which is a collider of U2 and A1, opens a correlation between them that allows us to use a path through U1 and L3 to get to Y, meaning they are not truly d-separated. 
+However, we just learned that for sequential treatments, the g-formula requires sequential exchangeability, meaning that the outcome must be independent of the treatment observed given the past history. If we follow this assumption we would need A2 to be independent of Y(a1,a2) given the past history. In this case, A2 is not independent of Y(a1,a2) given L2, A1 because conditioning on L2, which is a collider of U2 and A1, opens a correlation between them that allows us to use a path through U1 and L3 to get to Y, meaning they are not truly d-separated. 
 :::
 
 :::{.callout-note title="Simulation study"}
 
-We define the following binary SCM where each variable is a Bernoulli trial based on a linear combination of its parents:
+I define the following binary SCM where each variable is a Bernoulli trial based on a linear combination of its parents:
 
 * Exogenous Noise: $U_1, U_2 \sim \text{Bernoulli}(0.5)$
 * A1: $P(A_1=1 \mid U_1) = 0.2 + 0.5U_1$
