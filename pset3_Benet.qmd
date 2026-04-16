@@ -1,0 +1,466 @@
+---
+title: "Problem Set #3"
+subtitle: "BST 258: Causal Inference -- Theory and Practice"
+author: "Benet Fité Abril"
+date: "2026/04/09"
+format:
+  pdf:
+    documentclass: scrartcl
+    papersize: letter
+    fontsize: 11pt
+    geometry:
+      - margin=1in
+      - heightrounded
+    number-sections: false
+    colorlinks: true
+    link-citations: true
+    callout-appearance: simple
+    callout-icon: false
+    # figure options
+    fig-width: 6
+    fig-asp: 0.618
+    fig-cap-location: bottom
+    # code block options
+    code-line-numbers: true
+bibliography: refs.bib
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| label: global-setup
+library(here)
+```
+
+\footnotesize
+**Problem set policies:** Please provide concise, clear answers for each
+question. Note that only writing the result of a calculation without
+explanation is not sufficient. For problems involving \textsf{R}, include the
+code in your solution, along with any figures or tables.
+
+Please submit your problem set via Canvas in PDF, alongside the corresponding
+\textsf{Quarto} (`.qmd`) source file.
+
+We encourage you to discuss problems with other students, but you must
+write your final answer in your own words. Solutions prepared "in
+committee" are not acceptable. If you do collaborate with classmates on a
+problem, please list your collaborators on your solution. Similarly, while you
+may find the use of ChatGPT and related tools helpful, disclosing your use of
+them is required to adhere to academic/intellectual honesty.
+
+::: {.callout-warning title="Coding Standards"}
+Make sure to write code that is modular and reusable, making use of functions
+or classes as necessary. Make sure to use variable names that are descriptive
+--- that is, human parse-able (e.g., not `x` or `this_var`) --- while favoring
+conciseness. Write brief documentation for any functions or classes as well as
+any unit tests necessary to ensure that your code is working as expected.
+Finally, make to set a seed for the PRNG so that any random aspects of your
+analysis (e.g., Monte Carlo simulation experiments, sample-splitting) are
+reproducible.
+:::
+
+{{< pagebreak >}}
+
+
+## Question 1: Estimating the ATE with Covariates Using Non-parametric Models
+
+:::{.callout-note title="a) What is the true average treatment effect of implied by this model?"}
+The ATE is defined as $\theta^{ATE} = \mathbb{E}[Y^{(1)} - Y^{(0)}]$. Lets calculate the two potential outcomes:
+1. If everyone is treated (A=1), we have:
+$$Y^{(1)} = 0.5 + 0.5(1) + 0.8\sin(L_1) + 0.5(1)L_1^2 + \epsilon_Y = 1.0 + 0.8\sin(L_1) + 0.5L_1^2 + \epsilon_Y$$
+2. If nobody is treated (A=0):
+$$Y^{(0)} = 0.5 + 0.5(0) + 0.8\sin(L_0) + 0.5(0)L_0^2 + \epsilon_Y = 0.5 + 0.8\sin(L_0) + \epsilon_Y$$
+
+If we substract them and take the expectation, we can remove the error terms ($\mathbb{E}[\epsilon_y] = 0$), and if we assume exchangeability, meaning the covariate distribution L under Y1 and Y0 is the same. That makes the sinusoidal term cancel out:
+$$\mathbb{E}[Y^1 - Y^0] = \mathbb{E}[1.0 + 0.8\sin(L) + 0.5L^2 + \epsilon_Y - 0.5 - 0.8\sin(L) - \epsilon_Y] = \mathbb{E}[0.5 +0.5L^2] = 0.5 + 0.5\mathbb{E}[L^2]$$
+
+We need the expectation of $L^2$. Since L comes from $\mathcal{N}(0,1)$, we can use the variance formula $Var(L) = \mathbb{E}[L^2] - (\mathbb{E}[L])^2$, where we know $Var(L) = 1$ and the last term is 0. This yields $\mathbb{E}[L^2] = 1$. If we plug this back in:
+
+$$\theta^{ATE} = 0.5+0.5*1 = 1$$
+:::
+
+For the rest of the PSET, I will use XGBoost and MARS (Multivariate Adaptive Regression Splines). Here are all the necessary functions:
+
+```{r}
+suppressPackageStartupMessages({
+  library(xgboost)
+  library(earth)
+  library(foreach)
+  library(doParallel)
+  library(doRNG)
+  library(ggplot2)
+  library(dplyr)
+})
+
+# Function to generate data according to the SEM
+generate_data <- function(n) {
+  # Draw error terms from standard normal distribution
+  eps_L <- rnorm(n, mean = 0, sd = 1)
+  eps_Y <- rnorm(n, mean = 0, sd = 1)
+  
+  # Structural equations
+  L <- eps_L
+  prob_A <- ifelse(L < -0.4399, 0.25, ifelse(L < 0.4399, 0.50, 0.75))
+  A <- rbinom(n, size = 1, prob = prob_A)
+  Y <- 0.5 + 0.5 * A + 0.8 * sin(L) + 0.5 * A * (L^2) + eps_Y
+  
+  # Return as a dataframe
+  return(data.frame(L = L, A = A, Y = Y))
+}
+
+# Function for the plugin estimator, admitting parametric, xgboost and MARS via the earth package.
+plugin <- function(data, method = c("parametric", "xgb", "earth")) {
+  method <- match.arg(method)
+
+  fit_model <- function(data) {
+    switch(method,
+      parametric = lm(Y ~ A + sin(L) + I(A * L^2), data = data),
+      xgb        = xgb.train(
+                     params  = list(objective = "reg:squarederror"),
+                     data    = xgb.DMatrix(data = as.matrix(data[, c("A", "L")]), label = data$Y),
+                     nrounds = 50,
+                     verbose = 0
+                   ),
+      earth      = earth(Y ~ A + L, data = data)
+    )
+  }
+
+  predict_model <- function(fit, A_val) {
+    newdata <- data.frame(A = A_val, L = data$L)
+    switch(method,
+      parametric = predict(fit, newdata = newdata),
+      xgb        = predict(fit, as.matrix(newdata)),
+      earth      = predict(fit, newdata = newdata)[, 1]
+    )
+  }
+
+  fit    <- fit_model(data)
+  mean(predict_model(fit, 1) - predict_model(fit, 0))
+}
+
+# One step estimator from Q2
+one_step_cv <- function(data, K = 5, method = c("xgb", "earth")) {
+  method <- match.arg(method)
+  n      <- nrow(data)
+  folds  <- sample(rep(1:K, length.out = n))
+  m1_hat <- numeric(n)
+  m0_hat <- numeric(n)
+
+  fit_model <- function(train_data) {
+    if (method == "xgb") {
+      dtrain <- xgb.DMatrix(
+        data  = as.matrix(train_data[, c("A", "L")]),
+        label = train_data$Y
+      )
+      xgb.train(
+        params  = list(objective = "reg:squarederror"),
+        data    = dtrain,
+        nrounds = 50,
+        verbose = 0
+      )
+    } else {
+      earth(Y ~ A + L, data = train_data)
+    }
+  }
+
+  predict_model <- function(fit, A_val, L_vec) {
+    newdata <- data.frame(A = A_val, L = L_vec)
+    if (method == "xgb") {
+      predict(fit, as.matrix(newdata))
+    } else {
+      predict(fit, newdata = newdata)[, 1]
+    }
+  }
+
+  for (k in 1:K) {
+    test  <- folds == k
+    fit   <- fit_model(data[!test, ])
+    L_test <- data$L[test]
+    m1_hat[test] <- predict_model(fit, 1, L_test)
+    m0_hat[test] <- predict_model(fit, 0, L_test)
+  }
+
+  pi_L    <- ifelse(data$L < -0.4399, 0.25, ifelse(data$L < 0.4399, 0.50, 0.75))
+  plug_in <- m1_hat - m0_hat
+  aug_1   <- (data$A * (data$Y - m1_hat)) / pi_L
+  aug_0   <- ((1 - data$A) * (data$Y - m0_hat)) / (1 - pi_L)
+
+  mean(plug_in + aug_1 - aug_0)
+}
+
+# Function to run the simulation in parallel, flexible to admit both Q1 and Q2, caches results.
+run_simulation <- function(estimator_fns, estimator_names, cache_file,
+                           n_values = c(50, 100, 200, 500, 1000),
+                           M = 1000, true_ate = 1.0) {
+
+  if (file.exists(cache_file)) {
+    cat("Cache found! Loading results from", cache_file, "...\n")
+    return(readRDS(cache_file))
+  }
+
+  cat("No cache found. Initializing parallel backend...\n")
+  cores_to_use <- max(1, parallel::detectCores() - 1)
+  cl <- makeCluster(cores_to_use)
+  registerDoParallel(cl)
+  clusterExport(cl, varlist = c("generate_data", "plugin", "one_step_cv"))
+  cat("Successfully registered", cores_to_use, "cores.\n")
+
+  results_list <- list()
+
+  for (n in n_values) {
+    cat("  Running distributed simulations for n =", n, "...\n")
+
+    sim_outputs <- foreach(m = 1:M, .combine = rbind,
+                           .packages = c("xgboost", "earth")) %dorng% {
+      df  <- generate_data(n)
+      # Apply every estimator function and return as named vector
+      sapply(estimator_fns, function(f) f(df))
+    }
+
+    colnames(sim_outputs) <- estimator_names
+    rmse_vals <- sqrt(colMeans((sim_outputs - true_ate)^2))
+
+    results_list[[as.character(n)]] <- data.frame(
+      n     = n,
+      Model = estimator_names,
+      RMSE  = as.numeric(rmse_vals)
+    )
+  }
+
+  stopCluster(cl)
+
+  final_results <- do.call(rbind, results_list)
+  rownames(final_results) <- NULL
+  saveRDS(final_results, file = cache_file)
+  cat("Simulation complete! Results cached to", cache_file, "\n")
+
+  final_results
+}
+
+# Master palette to avoid issues
+master_colors <- c(
+  "Parametric (Correct)"  = "black",
+  "XGBoost"               = "#56B4E9", # Light blue
+  "Earth (MARS)"          = "#E69F00", # Light orange
+  "One-Step XGBoost"      = "#0072B2", # Dark blue
+  "One-Step Earth (MARS)" = "#D55E00"  # Dark red/orange
+)
+```
+
+```{r}
+# Set seed for reproducibility
+set.seed(14)
+
+# Generate a test dataset
+df_test <- generate_data(n = 1000)
+
+# Run the estimators
+ate_xgboost <- plugin(df_test, 'xgb')
+ate_earth   <- plugin(df_test, 'earth')
+ate_param   <- plugin(df_test, 'parametric')
+
+# Print results
+cat(paste0(
+  "True ATE:                  1.000\n",
+  "Parametric ATE Estimate:   ", round(ate_param, 3), "\n",
+  "XGBoost ATE Estimate:      ", round(ate_xgboost, 3), "\n",
+  "Earth (MARS) ATE Estimate: ", round(ate_earth, 3), "\n"
+))
+```
+
+:::{.callout-note title="c.1) Run the simulation study and plot average absolute bias (or RMSE) as a function of 𝑛 for each model on the same plot, both on regular and log-log scale."}
+
+```{r}
+# Run the simulation
+q1_results <- run_simulation(
+  estimator_fns   = list(
+    function(df) plugin(df, "parametric"),
+    function(df) plugin(df, "xgb"),
+    function(df) plugin(df, "earth")
+  ),
+  estimator_names = c("Parametric (Correct)", "XGBoost", "Earth (MARS)"),
+  cache_file      = "pset3_q1_parallel_simulation.rds"
+)
+```
+
+```{r}
+# ---------------------------------------------------------
+# Plot 1: Standard Scale
+# ---------------------------------------------------------
+plot_standard <- ggplot(q1_results, aes(x = n, y = RMSE, color = Model, group = Model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(values = master_colors) +
+  theme_minimal() +
+  labs(
+    title = "RMSE vs. Sample Size (Standard Scale)",
+    x = "Sample Size (n)",
+    y = "Root Mean Squared Error (RMSE)"
+  ) +
+  theme(legend.position = "bottom")
+
+print(plot_standard)
+
+# ---------------------------------------------------------
+# Plot 2: Log-Log Scale (Annotated)
+# ---------------------------------------------------------
+empirical_slopes <- q1_results %>%
+  group_by(Model) %>%
+  summarize(
+    empirical_slope = coef(lm(log10(RMSE) ~ log10(n)))[2],
+    .groups = "drop"
+  )
+
+label_data <- q1_results %>%
+  filter(n == 1000) %>% # Anchor the text at the last data point
+  left_join(empirical_slopes, by = "Model") %>%
+  # Format the text to look clean (e.g., "m = -0.50")
+  mutate(label_text = paste0("m = ", round(empirical_slope, 2)))
+
+plot_loglog_annotated <- ggplot(q1_results, aes(x = n, y = RMSE, color = Model, group = Model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  
+  scale_color_manual(values = master_colors) +
+  
+  # Add the slope text labels
+  geom_text(
+    data = label_data, 
+    aes(label = label_text), 
+    hjust = -0.2,          # Push the text slightly to the right of the point
+    vjust = 0.5,           # Center it vertically with the point
+    show.legend = FALSE,   # Prevent 'a' from showing up in the legend
+    size = 4,
+    fontface = "bold"
+  ) +
+  
+  # Transform axes and expand the x-axis to make room for the text
+  scale_x_log10(expand = expansion(mult = c(0.05, 0.4))) + 
+  scale_y_log10() +  
+  
+  theme_minimal() +
+  labs(
+    title = "RMSE vs. Sample Size (Log-Log Scale)",
+    x = "Log10 Sample Size (n)",
+    y = "Log10 RMSE"
+  ) +
+  theme(legend.position = "bottom")
+
+print(plot_loglog_annotated)
+```
+
+:::
+
+:::{.callout-note title="c.2) What do you notice between the parametric model vs. the non-parametric models? Also plot a log-log version of this plot. What do you notice?"}
+First of all, we see that the correctly specified parametric model, which already knows the structure of the data generating process, starts out at a lower RMSE and converges at the standard $\sqrt n$ rate (slope of-0.5 on a log-log plot). The ML models show apparently faster convergence rates because they start with higher RMSE at low sample sizes as they apply regularization techniques to reduce variance at the cost of bias, most of the initial sample size is "spent" guessing the shape of the data generating process. Once n starts to grow, they reduce the regularization (building deeper trees in XGBoost or adding more knots in MARS) to make better use of the data, which causes them to have a steeper slope as they catch up to the parametric model.
+
+
+:::
+
+## Question 2: One-step estimator
+
+The DR estimator stated in the prompt appears strange, as you are calculating the outcome of the treated people - the prediction for the untreated outcome. I changed it to:
+
+$$\hat{\Psi}^{OS}=\mathbb{P}_{n}\left[ \hat{m}_1(L) - \hat{m}_0(L) + \frac{A(Y - \hat{m}_1(L))}{\pi(L)} - \frac{(1-A)(Y - \hat{m}_0(L))}{1-\pi(L)} \right]$$
+The function is implemented above, using cross-fitting:
+
+```{r}
+q2_results <- run_simulation(
+  estimator_fns   = list(
+    function(df) plugin(df, "parametric"),
+    function(df) one_step_cv(df, method = "xgb"),
+    function(df) one_step_cv(df, method = "earth")
+  ),
+  estimator_names = c("Parametric (Correct)", "One-Step XGBoost", "One-Step Earth (MARS)"),
+  cache_file      = "pset3_q2_parallel_simulation.rds"
+)
+```
+:::{.callout-note title="b.1) Run the simulation study again and plot average absolute error as a function of 𝑛 for each model on the same plot. Include the parametric result from Q1."}
+```{r}
+# ---------------------------------------------------------
+# Plot 1: Standard Scale
+# ---------------------------------------------------------
+plot_standard <- ggplot(q2_results, aes(x = n, y = RMSE, color = Model, group = Model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(values = master_colors) +
+  theme_minimal() +
+  labs(
+    title = "RMSE vs. Sample Size (Standard Scale)",
+    x = "Sample Size (n)",
+    y = "Root Mean Squared Error (RMSE)"
+  ) +
+  theme(legend.position = "bottom")
+
+print(plot_standard)
+
+# ---------------------------------------------------------
+# Plot 2: Log-Log Scale
+# ---------------------------------------------------------
+empirical_slopes <- q2_results %>%
+  group_by(Model) %>%
+  summarize(
+    empirical_slope = coef(lm(log10(RMSE) ~ log10(n)))[2],
+    .groups = "drop"
+  )
+
+label_data <- q2_results %>%
+  filter(n == 1000) %>% # Anchor the text at the last data point
+  left_join(empirical_slopes, by = "Model") %>%
+  # Format the text to look clean (e.g., "m = -0.50")
+  mutate(label_text = paste0("m = ", round(empirical_slope, 2)))
+
+plot_loglog_annotated <- ggplot(q2_results, aes(x = n, y = RMSE, color = Model, group = Model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  
+  scale_color_manual(values = master_colors) +
+  
+  # Add the slope text labels
+  geom_text(
+    data = label_data, 
+    aes(label = label_text), 
+    hjust = -0.2,          # Push the text slightly to the right of the point
+    vjust = 0.5,           # Center it vertically with the point
+    show.legend = FALSE,   # Prevent 'a' from showing up in the legend
+    size = 4,
+    fontface = "bold"
+  ) +
+  
+  # Transform axes and expand the x-axis to make room for the text
+  scale_x_log10(expand = expansion(mult = c(0.05, 0.4))) + 
+  scale_y_log10() +  
+  
+  theme_minimal() +
+  labs(
+    title = "RMSE vs. Sample Size (Log-Log Scale)",
+    x = "Log10 Sample Size (n)",
+    y = "Log10 RMSE"
+  ) +
+  theme(legend.position = "bottom")
+
+print(plot_loglog_annotated)
+print(empirical_slopes)
+```
+:::
+
+:::{.callout-note title="b.2) What differences do you see between this and the plot you obtained in the Question 1?"}
+Theoretically, since we are now using a doubly robust estimator with a correctly specified propensity score, the RMSE should shrink in comparison to the plugin estimator, as we are explicitly substracting the bias introduced by the model. This is exactly what we observe in the plots, which are now much closer to the parametric true model. We can see that with the correction, MARS consistently outperforms XGBoost. This is due to the curved structure of the true data generating process, which splines approximate more efficiently. 
+
+The empirical convergence rates remain similar to Q1, but since we are now using cross-fitting and the doubly robust augmentation terms, we are eliminating possible overfitting and obtaining more statistically valid, unbiased estimates.
+
+As a side note, to understand why the IPW term is useful, it helps to dissect an example with A=1 where only the term $\frac{Y - \hat{m}_1}{\pi(L)}$ appears. If we did not have the propensity score, we would correct our estimate with the average bias in the treated group, which is most likely not representative of the whole population. Since we are looking at the ATE, we want to correct the bias as if the whole population was treated, and to do so, we use the IPW. This scales up bias from underrepresented L (people who were unlikely to be treated), to create a pseudo-population that mimics the total population.
+
+:::
+
+
+{{< pagebreak >}}
+
+
+## References
+GenAI (GEMINI, Claude) was used throughout this problem set to write code, write latex and discuss the problems. I always prompt in a way that the response guides my thinking rather than providing the answer right away, which promotes a better learning experience.
+
+
+::: {#refs}
+:::
+
