@@ -1,0 +1,548 @@
+---
+title: "Problem Set #4"
+subtitle: "BST 258: Causal Inference -- Theory and Practice"
+author: "Benet Fité Abril"
+date: "2026/04/23"
+format:
+  pdf:
+    documentclass: scrartcl
+    papersize: letter
+    fontsize: 11pt
+    geometry:
+      - margin=1in
+      - heightrounded
+    number-sections: false
+    colorlinks: true
+    link-citations: true
+    callout-appearance: simple
+    callout-icon: false
+    # figure options
+    fig-width: 6
+    fig-asp: 0.618
+    fig-cap-location: bottom
+    # code block options
+    code-line-numbers: true
+bibliography: refs.bib
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| label: global-setup
+library(here)
+```
+
+\footnotesize
+**Problem set policies:** Please provide concise, clear answers for each
+question. Note that only writing the result of a calculation without
+explanation is not sufficient. For problems involving \textsf{R}, include the
+code in your solution, along with any figures or tables.
+
+Please submit your problem set via Canvas in PDF, alongside the corresponding
+\textsf{Quarto} (`.qmd`) source file.
+
+We encourage you to discuss problems with other students, but you must
+write your final answer in your own words. Solutions prepared "in
+committee" are not acceptable. If you do collaborate with classmates on a
+problem, please list your collaborators on your solution. Similarly, while you
+may find the use of ChatGPT and related tools helpful, disclosing your use of
+them is required to adhere to academic/intellectual honesty.
+
+::: {.callout-warning title="Coding Standards"}
+Make sure to write code that is modular and reusable, making use of functions
+or classes as necessary. Make sure to use variable names that are descriptive
+--- that is, human parse-able (e.g., not `x` or `this_var`) --- while favoring
+conciseness. Write brief documentation for any functions or classes as well as
+any unit tests necessary to ensure that your code is working as expected.
+Finally, make to set a seed for the PRNG so that any random aspects of your
+analysis (e.g., Monte Carlo simulation experiments, sample-splitting) are
+reproducible.
+:::
+
+{{< pagebreak >}}
+
+
+## Question 1: The Parametric Plug-In Estimator
+
+Theorem: Let $O_i = (L_i, A_i, Y_i)$. Next, define $f(l) := m_1(l) - m_0(l)$ where $m_a(l) = E[Y | [cite_start]A=a, L=l]$ such that $\psi(\mathbb{P}_O) = E[f(L)]$ identifies the ATE (i.e., you needn't worry about issues of identification).Assume that the parametric model:
+$$m_a(l) = m_a(l; \beta)$$
+for some $\beta \in \mathbb{R}^p$ and that the estimator $\hat{\beta}$ satisfies the conditions of Lemma 4.1. Then:
+$$\hat{\psi}_n - \psi = (P_n - P)h(O; \beta) + o_P(1/\sqrt{n})$$
+where we define
+$$h(o; \beta) := f(l; \beta) + \frac{\partial E[f(L; \beta)]}{\partial \beta^T} \left\{ \frac{\partial E[\varphi(O; \beta)]}{\partial \beta^T} \right\}^{-1} \varphi(o; \beta)$$
+Please prove this theorem
+
+:::{.callout-note title="a) What is the true average treatment effect of implied by this model?"}
+We will use the error expression with T*, T1 and T2 we worked with in class, so to start, we define the estimator and the estimand:
+
+- Estimator: $\hat{\psi}_n = P_n f(L; \hat{\beta})$
+- Estimand:  $\psi = P f(L; \beta)$
+
+This yields the expression (after doing the add-and-substract trick):
+$$\hat{\psi}_n - \psi = (P_n - P)f(L; \hat{\beta}) + P(f(L; \hat{\beta}) - f(L; \beta))$$
+The first term is the empirical process term. Since $f(L; \beta)$ is smooth and $\hat{\beta}$ converges to $\beta$, the difference between evaluating this empirical process at $\hat{\beta}$ versus the true $\beta$ is asymptotically negligible, and can be absorbed into a term $o_P(1/\sqrt{n})$. We can write this as:
+$$(P_n - P)f(L; \hat{\beta}) = (P_n - P)f(L; \beta) + o_P(1/\sqrt{n})$$
+The second term only depends on $\beta$, so we can rewrite it as $\gamma(\beta) = E_0[f(L; \beta)]$, where $E_0$ is the expectation under the true distribution. This transforms the second term into $\gamma(\hat{\beta}) - \gamma(\beta)$. We can now apply the Delta method and do a Taylor expansion around $\beta$
+$$\gamma(\hat{\beta}) - \gamma(\beta) = \frac{\partial \gamma(\beta)}{\partial \beta^T} (\hat{\beta} - \beta) + o_P(1/\sqrt{n}) = \frac{\partial E_0[f(L; \beta)]}{\partial \beta^T}(\hat{\beta} - \beta) + o_P(1/\sqrt{n})$$
+We can now leverage Lemma 4.1 from the prompt and substitute $\hat{\beta} - \beta$:
+$$\frac{\partial E_0[f(L; \beta)]}{\partial \beta^T} \left( (P_n - P) \left[ \left\{ \frac{\partial E[\varphi(O; \beta)]}{\partial \beta^T} \right\}^{-1} \varphi(O; \beta) \right] \right) + o_P(1/\sqrt{n}) = P(f(L; \hat{\beta}) - f(L; \beta))$$
+If we look back at our equation for $\hat{\psi}_n - \psi$, we can now factor out $(P_n-P)$, and if we define $h(O;\beta)$ as such, we complete the proof.
+$$\hat{\psi}_n - \psi = (P_n - P) \underbrace{\left[ f(L; \beta) + \frac{\partial E[f(L; \beta)]}{\partial \beta^T} \left\{ \frac{\partial E[\varphi(O; \beta)]}{\partial \beta^T} \right\}^{-1} \varphi(O; \beta) \right]}_{h(O; \beta)} + o_P(1/\sqrt{n})$$
+
+:::
+
+## Question 2: Double robustness, cross fitting and TMLE
+
+:::{.callout-note title="a) Prove double robustness"}
+The goal is to prove that $E\left[\psi_{eff}^{(1)}(O; \tilde{m}, \tilde{g})\right] = 0$. To do so, we first set up the expectation with the estimators:
+$$E\left[\psi_{eff}^{(1)}(O; \tilde{m}, \tilde{g})\right] = E\left[ \frac{A}{\tilde{g}(L)}(Y - \tilde{m}(L)) + \tilde{m}(L) - \psi(\mathbb{P}_O) \right]$$
+Focusing on the first term, we can apply the law of iterated expectations over L, and pull out the estimated terms that become constant:
+$$E\left[ \frac{A}{\tilde{g}(L)}(Y - \tilde{m}(L)) \right] = E_L\left[ E\left[ \frac{A}{\tilde{g}(L)}(Y - \tilde{m}(L)) \Big| L \right] \right] = E_L\left[ \frac{1}{\tilde{g}(L)} (E\left[ AY \mid L \right] - \tilde{m}(L)E\left[ A \mid L \right]) \right]$$
+Now we can break down the inner expectation using conditional probabilities, as the inner expectation is non zero only when A=1. Substituting $g(L) = P(A=1|L) = E\left[ A \mid L \right]$ and $m(L) = E[Y|A=1,L]$, we get:
+$$= E_L\left[ \frac{1}{\tilde{g}(L)} (P(A=1|L) E\left[ Y \mid A=1, L \right] - \tilde{m}(L)(P(A=1|L)) \right] = E_L\left[ \frac{g(L)}{\tilde{g}(L)} (m(L) - \tilde{m}(L)) \right]$$
+We can now put everything back together, remembering that $\psi(\mathbb{P}_O) = E_L[m(L)]$
+$$E\left[\psi_{eff}^{(1)}(O; \tilde{m}, \tilde{g})\right] = E_L\left[ \frac{g(L)}{\tilde{g}(L)} (m(L) - \tilde{m}(L)) \right] + E_L[\tilde{m}(L)] - E_L[m(L)]$$
+$$= E_L\left[ \frac{g(L)}{\tilde{g}(L)} (m(L) - \tilde{m}(L)) - (m(L) - \tilde{m}(L)) \right] = E_L\left[ \left( \frac{g(L)}{\tilde{g}(L)} - 1 \right) (m(L) - \tilde{m}(L)) \right]$$ 
+We can now easily evaluate either case where $\tilde{m} = m$ or $\tilde{g} = g$, and we see that the expectation becomes 0.
+
+:::
+
+:::{.callout-note title="b) Show that the expansion is satisfied:"}
+When evaluating the error between an estimate and the truth, we can use the decomposition we derived in class with the add and substract method:
+$$\hat{\psi}_n - \psi_0 = (P_n - P_0)f + (P_n - P_0)(\hat{f} - f)  + P_0(\hat{f} - f)$$
+Where:
+
+- The true function $f$ = $\psi_{eff}^{(1)}(O; m, g)$ the true efficient influence function .
+- The estimated function $\hat{f}$ = $\psi_{eff}^{(1)}(O; \tilde{m}_{j}, \tilde{g}_{j})$, the estimated efficient influence function evaluated using models from the training fold.
+- The true expectation $P_0$ = $\mathbb{P}_O$, the expectation over the true data-generating distribution.
+- The empirical mean $P_n = P_{n,i}$, the empirical mean over the validation fold.
+
+Since we are using crossfitting and averaging over two folds, lets focus initially on the first split (training models on fold 1, evaluating them on fold 2). In that case, lets look at the three terms one by one.
+:::
+
+:::{.callout-note title="b.1) T* $(P_{n,2} - P_0)f)$"}
+This term evaluates the true influence function with the validation fold and under the true distribution. A core property of influence functions is that:
+$$P_0 f = \mathbb{E}_{\mathbb{P}_O}[\psi_{eff}^{(1)}(O; m, g)] = 0$$
+Which leaves term T* as:
+$$T^* = P_{n,2} f = \frac{2}{n} \sum_{i \in S_2} \psi_{eff}^{(1)}(O_i; m, g)$$
+where the 2/n comes from the size of the validation fold (n/2) in the denominator.
+:::
+
+:::{.callout-note title="b.2) T1 $((P_n - P_0)(\hat{f} - f))$"}
+If you do not do crossfitting for training the models and evaluating the empirical mean, you risk overfitting the noise in your dataset. This overfitting bias will prevent the term from shrinking fast enough, destroying the $1/\sqrt{n}$ asymptotic normality.
+
+Crossfitting is a simple way to ensure T1 is $1/\sqrt{n}$, as it avoids this problem. When we condition the empirical term on the training set, we turn $\hat{f}$ into a fixed function. Since $f$ is also a fixed function, the difference between them is a fixed, deterministic function applied to independent random variables. Because we are taking the empirical mean of this fixed function over $S_2$ and subtracting its true population expectation, the expected value of this difference is zero:
+$$E[(P_{n,2} - P)(\hat{f} - f) \mid S_1] = 0$$
+We can also write a variance bound as such:
+$$Var((P_{n,2} - P)(\hat{f} - f) \mid S_1) \le \frac{||\hat{f} - f||^2}{n/2}$$
+To prove it, we can do a simple change of variable, and remember that P is just the true value of the difference.
+$$H(O_i) = \hat{f}(O_i) - f(O_i)$$
+$$T_{1,2} = \left( \frac{1}{n/2} \sum_{i \in S_2} H(O_i) \right) - E[H(O) \mid S_1]$$
+The variance of a sample mean is the variance of a single observation divided by the sample size. Since the true mean $E[H(O) \mid S_1]$ is a constant, it drops out of the variance calculation:
+$$Var(T_{1,2} \mid S_1) = \frac{Var(H(O) \mid S_1)}{n/2}$$
+We can bound the variance with the first term of $Var(X) = E[X^2] - (E[X])^2$:
+$$Var(H(O) \mid S_1) \le E[H(O)^2 \mid S_1] = E[(\hat{f}(O) - f(O))^2 \mid S_1] = ||\hat{f} - f||^2$$
+Substituting back into the variance we get the result.
+
+Now, we can leverage Chebyshev's inequality to prove the term is $o_{\mathbb{P}_O}(1/\sqrt{n})$. We need to show that:
+$$P(|\sqrt{n} T_1| > \epsilon \mid S_1) \rightarrow 0 \text{ as } n \rightarrow \infty$$
+Chebyshev's inequality says that:
+$$P(|X| > \epsilon) \le \frac{Var(X)}{\epsilon^2}$$
+In our case, $X = \sqrt{n/2} T_{1,2}$, our scaled empirical process term. To derive the variance expression:
+$$Var(\sqrt{n/2} T_{1,2} \mid S_1) = \left(\sqrt{\frac{n}{2}}\right)^2 Var(T_{1,2} \mid S_1) = \frac{n}{2} Var(T_{1,2} \mid S_1)$$
+We can now input the variance expression from above, and plug this in to Chebyshev's inequality
+$$Var(\sqrt{n/2} T_{1,2} \mid S_1) \le \frac{n}{2} \left( \frac{||\hat{f} - f||^2}{n/2} \right) = ||\hat{f} - f||^2$$
+$$P(|\sqrt{n/2} T_{1,2}| > \epsilon \mid S_1) \le \frac{||\hat{f} - f||^2}{\epsilon^2}$$
+Therefore as long as our nuisance estimators converge in $L_2$ norm such that $||\hat{f} - f|| = o_{\mathbb{P}_O}(1)$, the sample splitting process guarantees that $T_1 = o_{\mathbb{P}_O}(1/\sqrt{n/2}) = o_{\mathbb{P}_O}(1/\sqrt{n})$
+:::
+
+:::{.callout-note title="b.3) T2 $(P_0(\hat{f} - f))$"}
+Since we already established that $P_0f = 0$, this becomes the expectation under the true distribution of $\hat{f}$:
+$$T_2 = E\left[ \psi_{eff}^{(1)}(O; \tilde{m}_{j}, \tilde{g}_{j}) \right]$$
+Focusing on fold j, we can recycle the algebra from question a) to transform this into:
+$$=E\left[ \left( \frac{g(L)}{\tilde{g}_{j'}(L)} - 1 \right) (m(L) - \tilde{m}_{j'}(L)) \right]$$
+With some algebraic manipulations, we can get this to look like:
+$$= - E\left[ (\tilde{m}_{j'}(L) - m(L)) \left( \frac{1}{\tilde{g}_{j'}(L)} - \frac{1}{g(L)} \right) g(L) \right] = - \int (\tilde{m}_{j'}(L) - m(l))\left(\frac{1}{\tilde{g}_{j'}(l)} - \frac{1}{g(l)}\right)g(l) \, d\mathbb{P}_O$$
+
+Averaging this over the two folds, we get the equation in the prompt, but with a flipped sign, which I do not really understand why.
+
+:::
+
+:::{.callout-note title="c.1) Implement a TMLE estimator for the ATE"}
+
+```{r}
+suppressPackageStartupMessages({
+  library(xgboost)
+  library(truncnorm)
+  library(foreach)
+  library(doParallel)
+  library(doRNG)
+  library(ggplot2)
+  library(dplyr)
+})
+
+
+# Data generating function
+generate_data <- function(n) {
+  eps_L <- rtruncnorm(n, a = -2, b = 2, mean = 0, sd = 1)
+  eps_Y <- rtruncnorm(n, a = -1.7, b = 1.2728, mean = 0, sd = 1)
+  L <- eps_L
+  prob_A <- ifelse(L < -0.4399, 0.25, ifelse(L < 0.4399, 0.50, 0.75))
+  A <- rbinom(n, size = 1, prob = prob_A)
+  Y <- 0.5 + 0.5 * A + 0.8 * sin(L) + 0.5 * A * (L^2) + eps_Y
+  return(data.frame(L = L, A = A, Y = Y))
+}
+
+# XGB modelling helpers
+fit_xgb_model <- function(features, label, max_depth = 3, nrounds = 50,
+                          objective = "reg:squarederror") {
+  dtrain <- xgb.DMatrix(data = as.matrix(features), label = label)
+  xgb.train(params = list(objective = objective, max_depth = max_depth), 
+            data = dtrain, nrounds = nrounds, verbose = 0)
+}
+
+estimate_nuisance_xgb <- function(train_data, valid_data) {
+  fit_Y <- fit_xgb_model(features = train_data[, c("A", "L")], label = train_data$Y_star)
+  fit_A <- fit_xgb_model(features = train_data[, "L", drop = FALSE],
+                         label = train_data$A, objective = "binary:logistic")
+  
+  preds_m_A <- predict(fit_Y, as.matrix(valid_data[, c("A", "L")]))
+  preds_m_1 <- predict(fit_Y, as.matrix(data.frame(A = 1, L = valid_data$L)))
+  preds_m_0 <- predict(fit_Y, as.matrix(data.frame(A = 0, L = valid_data$L)))
+  preds_g   <- predict(fit_A, as.matrix(valid_data[, "L", drop = FALSE]))
+  
+  return(list(m_hat_A = preds_m_A, m_hat_1 = preds_m_1, m_hat_0 = preds_m_0, g_hat = preds_g))
+}
+```
+
+```{r}
+# Estimator functions
+plugin_xgboost <- function(data) {
+  n <- nrow(data)
+  
+  m_hat_1 <- numeric(n)
+  m_hat_0 <- numeric(n)
+  
+  # Cross-fitting
+  folds <- sample(rep(1:2, length.out = n))
+  for (v in 1:2) {
+    train_idx <- which(folds != v)
+    valid_idx <- which(folds == v)
+    
+    train_data <- data[train_idx, ]
+    valid_data <- data[valid_idx, ]
+    
+    # Train the outcome model on the training fold
+    fit <- fit_xgb_model(features = train_data[, c("A", "L")], label = train_data$Y)
+    
+    # Predict counterfactuals on the validation fold
+    dvalid_1 <- as.matrix(data.frame(A = 1, L = valid_data$L))
+    dvalid_0 <- as.matrix(data.frame(A = 0, L = valid_data$L))
+    
+    m_hat_1[valid_idx] <- predict(fit, dvalid_1)
+    m_hat_0[valid_idx] <- predict(fit, dvalid_0)
+  }
+  
+  # Return ATE calculation
+  return(mean(m_hat_1 - m_hat_0))
+}
+```
+
+```{r}
+tmle_xgboost <- function(data) {
+  n <- nrow(data)
+  min_Y <- -2
+  max_Y <- 5
+  data$Y_star <- (data$Y - min_Y) / (max_Y - min_Y)
+  
+  m_hat_A <- numeric(n); m_hat_1 <- numeric(n); m_hat_0 <- numeric(n); g_hat <- numeric(n)
+  folds <- sample(rep(1:2, length.out = n))
+  
+  for (v in 1:2) {
+    train_idx <- which(folds != v)
+    valid_idx <- which(folds == v)
+    
+    nuisance_preds <- estimate_nuisance_xgb(data[train_idx, ], data[valid_idx, ])
+    m_hat_A[valid_idx] <- nuisance_preds$m_hat_A
+    m_hat_1[valid_idx] <- nuisance_preds$m_hat_1
+    m_hat_0[valid_idx] <- nuisance_preds$m_hat_0
+    g_hat[valid_idx]   <- nuisance_preds$g_hat
+  }
+  
+  # Ensure positivity does not break
+  bound <- 0.005
+  m_hat_A <- pmin(pmax(m_hat_A, bound), 1 - bound)
+  m_hat_1 <- pmin(pmax(m_hat_1, bound), 1 - bound)
+  m_hat_0 <- pmin(pmax(m_hat_0, bound), 1 - bound)
+  g_hat   <- pmin(pmax(g_hat, bound), 1 - bound)
+  
+  # Set up the Clever covariate
+  A <- data$A
+  H_A <- (A / g_hat) - ((1 - A) / (1 - g_hat))
+  H_1 <- 1 / g_hat
+  H_0 <- -1 / (1 - g_hat)
+  
+  # Do the targeting step regression
+  offset_val <- qlogis(m_hat_A) 
+  targeting_model <- suppressWarnings(glm(data$Y_star ~ -1 + H_A + offset(offset_val),
+                                          family = quasibinomial))
+  eps <- coef(targeting_model)["H_A"]
+  
+  # Unscale the transformation and return the ATE
+  m_star_1 <- plogis(qlogis(m_hat_1) + eps * H_1)
+  m_star_0 <- plogis(qlogis(m_hat_0) + eps * H_0)
+  
+  return(mean(m_star_1 - m_star_0) * (max_Y - min_Y))
+}
+```
+
+```{r}
+# Parallel runner
+run_simulation <- function(estimator_fns, estimator_names, cache_file,
+                           n_values = c(50, 100, 200, 500, 1000), M = 1000) {
+
+  if (file.exists(cache_file)) {
+    cat("Cache found! Loading results from", cache_file, "...\n")
+    return(readRDS(cache_file))
+  }
+
+  cores_to_use <- max(1, parallel::detectCores() - 1)
+  cl <- makeCluster(cores_to_use)
+  registerDoParallel(cl)
+  
+  # Export the new functions and variables required for PSET 4
+  clusterExport(cl, varlist = c("generate_data", "plugin_xgboost", "tmle_xgboost", 
+                                "fit_xgb_model", "estimate_nuisance_xgb", "TRUE_ATE"))
+  
+  results_list <- list()
+
+  for (n in n_values) {
+    cat("  Running distributed simulations for n =", n, "...\n")
+
+    sim_outputs <- foreach(m = 1:M, .combine = rbind,
+                           .packages = c("xgboost", "truncnorm", "stats")) %dorng% {
+      df  <- generate_data(n)
+      sapply(estimator_fns, function(f) f(df))
+    }
+
+    colnames(sim_outputs) <- estimator_names
+    rmse_vals <- sqrt(colMeans((sim_outputs - TRUE_ATE)^2))
+
+    results_list[[as.character(n)]] <- data.frame(
+      n     = n,
+      Model = estimator_names,
+      RMSE  = as.numeric(rmse_vals)
+    )
+  }
+
+  stopCluster(cl)
+  final_results <- do.call(rbind, results_list)
+  saveRDS(final_results, file = cache_file)
+  return(final_results)
+}
+```
+
+```{r}
+
+# True ATE Calculation
+set.seed(14)
+large_L <- rtruncnorm(10000000, a = -2, b = 2, mean = 0, sd = 1)
+TRUE_ATE <- 0.5 + 0.5 * mean(large_L^2)
+
+# Execution of the simulation
+estimators <- list(plugin_xgboost, tmle_xgboost)
+names <- c("Naive Plug-in (XGBoost)", "TMLE (XGBoost)")
+
+results <- run_simulation(
+  estimator_fns = estimators,
+  estimator_names = names,
+  cache_file = "pset4_tmle_sim_results.rds",
+  n_values = c(50, 100, 200, 500, 1000),
+  M = 1000
+)
+
+ggplot(results, aes(x = n, y = RMSE, color = Model, group = Model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("Naive Plug-in (XGBoost)" = "#56B4E9",
+                                "TMLE (XGBoost)" = "#0072B2")) +
+  scale_x_log10(breaks = c(50, 100, 200, 500, 1000)) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "RMSE of TMLE vs Naive Plug-in Estimator",
+    subtitle = "M = 1000 draws, True ATE ≈ 0.8868",
+    x = "Sample Size (n, log scale)",
+    y = "Root Mean Squared Error (RMSE)"
+  )
+```
+:::
+
+:::{.callout-note title="c.2) What do you notice? What properties of the TMLE estimator make it more favorable than an A-IPW based estimator?"}
+We can see that at small sample sizes the TMLE distinctively outperforms the plug-in method. This is because XGBoost balance the bias-variance tradeoff with regularization, which input some asymptotic bias at lower sample sizes. That is what the TMLE corrects for. At larger samples, XGBoost gets better at estimating the true distribution and the regularization bias reduces, as we see on the plot. It is worth noting that the TMLE will always perform at least as good as the plug-in, the small difference seen on the plot is finite sample variance. 
+
+When comparing with the AIPW, the TMLE is more robust to near-positivity violations, as the propensity score is not multiplied directly with the outcome, but actually hidden inside the clever covariate, which limits the effect of extreme weights.
+
+:::
+
+## Question 3: Your First Efficient Influence Function
+
+:::{.callout-note title="a) Understand proof for $L_2^0(P) = \Lambda_P$"}
+Proving $\Lambda_P \subset L_2^0(P)$ is easy. By definition, the tangent space is made of score functions, which have expected value of zero and finite variance. To prove that $L_2^0(P) \subset \Lambda_P$, the proof proposes a probability density parametrized by t following some direction (score function):
+$$p_t(x) = p(x)\phi(tg(x))c^*(t)$$
+This is clever because $\phi(0) = 1$, making the perturbation term disappear and yielding the original density. To get the score, we build the log-likelihood by applying the log and differentiating at t=0, which yields $h(x) = g(x)$. This implies that for any mean-zero, finite-variance function $g(x)$, we can construct a valid parametric submodel whose score function is exactly $g(x)$, proving that $L_2^0(P) \subset \Lambda_P$ and thus $L_2^0(P) = \Lambda_P$.
+
+:::
+
+:::{.callout-note title="b) Prove that the EIF for $\psi(P) = E_P[f(X)]$ is $\psi^{(1)}_{P,eff} = f(X) - E_P[f(X)]$"}
+To prove this, we need to find the function that satisfies the pathwise derivative equation. We can think of the IF as the gradient of our parameter as it moves in a specific direction g(X).
+$$\frac{\partial}{\partial t}\psi(P_t)\Big|_{t=0} = E_P[IF(X) \cdot g(X)]$$
+To do this, we first write out our parameter and substitute the $p_t(x)$ for the parametrized expression from the appendix:
+$$\psi(P_t) = \int f(x) p_t(x) dx = \int f(x) p(x)\phi(tg(x))c^*(t) dx$$
+When we write the derivative, we assume domination and flip the integral and derivative by DCT. We also use this step to remove constants out of the operators:
+$$\frac{\partial}{\partial t}\psi(P_t)\Big|_{t=0} = \frac{\partial}{\partial t} \int f(x) p(x)\phi(tg(x))c^*(t) dx \Big|_{t=0} = \int f(x) p(x) \left[ \frac{\partial}{\partial t} \{\phi(tg(x))c^*(t) \} \Big|_{t=0} \right] dx$$
+We can now use the product rule to differentiate with respect to t and evaluate at t=0.
+$$\frac{\partial}{\partial t} [\phi(tg(x))c^*(t)] = \left[ \phi'(tg(x))g(x) c^*(t) + \phi(tg(x)) c'^*(t) \right] = g(x)$$
+The first term becomes g(x) as $\phi'(0) = 1$ and $c^*(0) = 1$, as there is no correction needed at t=0 ($\phi(0)=1$). The second term $c^{*\prime}(0) = 0$ becomes 0, as shown in the proof below. We can plug this back in to our equation, and turn back into the expectation form:
+$$\frac{\partial}{\partial t}\psi(P_t)\Big|_{t=0} = \int f(x) p(x) g(x) dx = E_P[f(X)g(X)]$$
+We can now set this equal to our influence function formula, and test the proposed IF to see if it complies:
+$$E_P[f(X)g(X)] = E_P[IF(X) \cdot g(X)]$$
+$$E_P[\{f(X) - E_P[f(X)]\} g(X)] = E_P[f(X)g(X) - E_P[f(X)]g(X)] = E_P[f(X)g(X)]$$
+As the second term of the inner expansion becomes the expectation of g, a score function that has mean 0, which cancels the term. We can see that the proposed formula by the prompt is an influence function. To see if it is the efficient influence function, we need to test it belongs to the tangent space, which we can show by proving it is part of $L_2^0(P)$:
+$$E_P[f(X) - E_P[f(X)]] = E_P[f(X)] - E_P[f(X)] = 0$$
+Since this expectation is zero, this IF lives in the tangent space, which makes it our unique EIF for this problem.
+:::
+
+:::{.callout-note title="c) What is the EIF of the functional $\psi(P)=P$"}
+Let's start by evaluating P at a specific event A, and noting that $\psi(P) = P(A) = E_P[I(X \in A)]$.This resembles the form that we had in part 2 where $f(x)$ is just the indicator function. If we apply what we demostrated there:
+$$EIF = f(X) - E_P[f(X)]$$
+$$EIF = I(X \in A) - E_P[I(X \in A)] = I(X \in A) - P(A)$$
+Which is basically the indicator that the event happened minus the probability of that event happening. This makes the expectation equal to 0, necessary for an EIF.
+
+:::
+
+
+## Question 4: Your n+1 Influence Efficient Function(s)
+
+:::{.callout-note title="a) Identify the parameter with the observed data"}
+Assuming the common causal inference assumptions, conditional exchangeability ($(Y(1), Y(0)) \perp A \mid L$), consistency ($Y = AY(1) + (1-A)Y(0)$) and positivity ($0 < P(A=1|L) < 1$), we can already work with one of the numerator's terms with our usual proof:
+$$E[Y(1)-Y(0)|L] = E[Y|A=1, L] - E[Y|A=0, L]$$
+Then we need to look at the $V(A|L)$. If we decompose it into parts:
+$$V(A|L) = E[A^2|L] - (E[A|L])^2 = E[A|L] - (E[A|L])^2$$
+We can remove the square as $A^2 = A$ in binary treatment. Then, we can look at the expectation of A given L:
+$$E[A|L] = (1 \cdot P(A=1|L)) + (0 \cdot P(A=0|L)) = P(A=1|L) = g(L)$$
+Replacing in the $V(A|L)$ we have:
+$$V(A|L) = g(L) - (g(L))^2 = g(L)(1-g(L))$$
+Defining $m_a(L) = E[Y|A=a, L]$, we can write the final expression as:
+$$\psi^{VTE}(P) = E\left[\frac{g(L)(1-g(L))(m_1(L) - m_0(L))}{E[g(L)(1-g(L))]}\right]$$
+Since the denominator becomes a constant after the inner expectation, the second expectation is not doing anything, so we can keep in the numerator:
+$$\psi^{VTE}(P) = \frac{E[g(L)(1-g(L))(m_1(L) - m_0(L))]}{E[g(L)(1-g(L))]}$$
+Where as per the prompt:
+$$Cov(Y, A | L) = g(L)(1 - g(L)) \Big[ m_1(L) - m_0(L) \Big]$$
+:::
+
+:::{.callout-note title="b.1) Derive the EIF for the covariance of A and Y for $P \in M$"}
+The notation $E$ and $E_p$ will be used interchangeably. We start from:
+$$\psi_{cov}(P) = \text{Cov}_P(A, Y) = E_P[(Y - E_P[Y])(A - E_P[A])] = E_P[YA] - E_P[Y]E_P[A]$$
+Where the latter equality is the expectation form of the covariance. I will use the tricks of the trade and the result from the previous problem:
+$$EIF(E[f(X)])= f(X) - E[f(X)]$$
+Then we have:
+$$EIF(E_P[YA] - E_P[Y]E_P[A]) = EIF(E_P[YA]) - EIF(E_P[Y]E_P[A])$$
+$$ =EIF(E_P[YA]) - EIF(E_P[Y])E_P[A] - E_P[Y]EIF(E_P[A])$$
+We can directly apply the IF we already derived to this expression:
+$$EIF(\psi(P)) = (YA-E[YA]) - (Y-E[Y])E[A] - (A-E[A])E[Y]$$
+$$ = YA - E[YA] - YE[A] + E[Y]E[A] - AE[Y] + E[A]E[Y]$$
+Here we can smartly collect a few terms: 
+$$YA - YE[A] + E[Y]E[A] - AE[Y] = (Y-E[Y])(A-E[A])$$
+$$EIF(\psi_{cov}(P)) = (Y-E[Y])(A-E[A]) - E[YA] + E[A]E[Y]$$
+The latter part is just $-\psi(P)$, so we finally get to:
+$$EIF(\psi_{cov}(P)) = (Y-E[Y])(A-E[A]) - \psi_{cov}(P)$$
+:::
+
+:::{.callout-note title="b.3) Derive the EIF for the expected conditional covariance of A and L conditioned on L"}
+Lets first define $m(L) = E[Y|L]$ and $g(L) = E[A|L]$.With that, we can write:
+$$\psi(P) = E[Cov_P(A,Y|L)] = E \Big[ E[YA|L] - m(L)g(L) \Big]$$
+To simplify this, we distribute the outer expectation and the first term becomes simply $E[YA]$:
+$$\psi(P) = E[YA] - E \Big[ m(L)g(L) \Big]$$
+Now we can apply the "tricks of the trade" to derive the efficient influence function (EIF). For the first part we use the result from Q3:
+$$\mathbb{IF}(E[YA]) = YA - E[YA]$$
+For the second part, we apply the trick for deriving the IF of an expectation of estimated functions, to get rid of the outer expectation. We have $\Psi(P) = E[f(L)]$ where $f(L) = m(L)g(L)$:
+$$\mathbb{IF}(E[f]) = f - E[f] + E[\mathbb{IF}(f)]$$
+$$\mathbb{IF}(E[m(L)g(L)]) = m(L)g(L) - E[m(L)g(L)] + E\Big[\mathbb{IF}(m(L)g(L))\Big]$$
+Now we can conveniently apply the product rule to the last term:
+$$E\Big[\mathbb{IF}(m(L)g(L))\Big] = E\Big[\mathbb{IF}(m(L))g(L) + m(L)\mathbb{IF}(g(L))\Big]$$
+To get the influence function of the conditional expectations m(L) and g(L) we leverage the result of 2.2. Since both functions do not depend on P, the second differentiated term in the result provided is 0. Lets start with $m(L)$:
+$$\mathbb{IF}(m(L)) = \frac{1\{L=l\}}{p(l)} (Y - m(l))$$
+Lets now take the expectation of the whole term:
+$$E\Big[ \mathbb{IF}(m(L))g(L) \Big] = \int \left[ \frac{1\{L=l\}}{p(l)} (Y - m(l)) \right] g(l) \cdot p(l) dl = g(L)(Y - m(L))$$
+We can see that the p(l) cancel out and the indicator function evaluates everything only at the observed L, which leaves us with the concise result. We can do the exact same for the second term:
+$$E[\mathbb{IF}(g(L))m(L)] = m(L)(A - g(L))$$
+We can now finally collect all the terms and put them back together:
+$$\mathbb{IF}(\psi(P))) = YA - E[YA] - \big(m(L)g(L) - E[m(L)g(L)] + g(L)(Y - m(L)) + m(L)(A - g(L)) \big)$$
+We can collect two of the terms to find $-\psi(P)$, and expand:
+$$\mathbb{IF}(\psi(P))) = YA - m(L)g(L) - g(L)Y + g(L)m(L) - m(L)A + m(L)g(L) - \psi(P)$$
+$$\mathbb{IF}(\psi(P))) = YA - g(L)Y - m(L)A + m(L)g(L) - \psi(P)$$
+We can see that the 4 terms are exactly $(Y - m(L))(A - g(L)$, so finally:
+$$\mathbb{IF}(\psi(P)) = (Y - m(L))(A - g(L)) - \psi(P)$$
+:::
+
+:::{.callout-note title="b.4) Derive the EIF for the $\psi_{VTE}(P)$"}
+We need the IF of each of the chunks and then we can combine them according to the quotient rule:
+$$\mathbb{IF}\left(\frac{\psi_{num}}{\psi_{den}}\right) = \frac{\mathbb{IF}(\psi_{num})\psi_{den} - \psi_{num}\mathbb{IF}(\psi_{den})}{\psi_{den}^2} = \frac{1}{\psi_{den}} \mathbb{IF}(\psi_{num}) - \frac{\psi_{num}}{\psi_{den}^2} \mathbb{IF}(\psi_{den})$$
+$$\psi^{VTE}(P) = \frac{E[Cov(Y,A|L)]}{E[g(L)(1-g(L))]}$$
+We already know the numerator, lets work on the denominator. First, we apply again the chain rule for expectations of estimated functions:
+$$\mathbb{IF}(E[f]) = f - E[f] + E[\mathbb{IF}(f)]$$
+$$\mathbb{IF}(E[g(L)(1-g(L))]) = g(L)(1-g(L)) - E[g(L)(1-g(L))] + E[\mathbb{IF}(g(L)(1-g(L)))]$$
+We can now focus on the latter part, which is easier if we expand the polynomial to $g(L) - g(L)^2$. We can now split this in:
+$$\mathbb{IF}(g(L) - g(L)^2) = \mathbb{IF}(g(L)) - \mathbb{IF}(g(L)^2)$$
+The second term needs to be expanded out using the Chain rule ($\mathbb{IF}(f(\psi)) = f'(\psi)\mathbb{IF}(\psi)$):
+$$\mathbb{IF}(g(L)^2) = 2g(L)\mathbb{IF}(g(L))$$
+$$\mathbb{IF}(g(L) - g(L)^2) = \mathbb{IF}(g(L)) - 2g(L)\mathbb{IF}(g(L))$$
+Factor out the common $\mathbb{IF}(g(L))$ term:
+$$\mathbb{IF}(g(L)(1-g(L))) = (1 - 2g(L))\mathbb{IF}(g(L))$$
+We can just pull our result from above ($E[\mathbb{IF}(g(L))m(L)] = m(L)(A - g(L))$), where instead of $m(L)$ we have $(1 - 2g(L))$:
+$$E[\mathbb{IF}(g(L)(1-g(L)))] = E\Big[ (1 - 2g(L))\mathbb{IF}(g(L)) \Big] = (1 - 2g(L))(A - g(L))$$
+Now we can assemble our denominator influence function:
+$$\mathbb{IF}(\psi_{den}) = g(L)(1-g(L)) - E[g(L)(1-g(L))] + (1 - 2g(L))(A - g(L))$$
+Let's combine everything now according to the quotient rule:
+$$\mathbb{IF}(\psi^{VTE}) = \frac{1}{\psi_{den}} \mathbb{IF}(\psi_{num}) - \frac{\psi_{num}}{\psi_{den}^2} \mathbb{IF}(\psi_{den}) = \frac{1}{\psi_{den}} \Big[ \mathbb{IF}(\psi_{num}) - \psi^{VTE} \mathbb{IF}(\psi_{den}) \Big]$$
+Lets start with the bracketed term:
+$$\mathbb{IF}(\psi_{num}) - \psi^{VTE} \mathbb{IF}(\psi_{den})$$
+$$= \Big[ (Y - m(L))(A - g(L)) - \psi_{num} \Big] - \psi^{VTE} \Big[ (1 - 2g(L))(A - g(L)) + g(L)(1-g(L)) - \psi_{den} \Big]$$
+Let's expand the inner term of the $\psi^{VTE}$ (simplification borrowed from Sinclair):
+$$(1 - 2g(L))(A - g(L)) + g(L)(1-g(L)) = A - g(L) - 2Ag(L) + 2g(L)^2 + g(L) - g(L)^2$$
+$$= A - 2Ag(L) + g(L)^2 = (A - g(L))^2$$
+Because $A = A^2$. If we substitute this above:
+$$= \Big[ (Y - m(L))(A - g(L)) - \psi_{num} \Big] - \psi^{VTE} \Big[ (A - g(L))^2 - \psi_{den} \Big]$$
+
+$$= (Y - m(L))(A - g(L)) - \psi_{num} - \psi^{VTE}(A - g(L))^2 + \psi^{VTE}\psi_{den}$$
+If we remember that $\psi^{VTE} = \frac{\psi_{num}}{\psi_{den}}$, we can rewrite  $\psi^{VTE} \psi_{den} = \psi_{num}$ and cancel out two terms:
+$$= (Y - m(L))(A - g(L)) - \psi^{VTE}(A - g(L))^2$$
+Finally, we can assemble the final EIF by multiplying by $\frac{1}{\psi_{den}}$:
+$$\mathbb{IF}(\psi^{VTE}) = \frac{ (Y - m(L))(A - g(L)) - \psi^{VTE}(A - g(L))^2 }{ E[g(L)(1-g(L))] }$$
+:::
+
+:::{.callout-note title="b.5) Derive the OS estimator"}
+When the parameter is a ratio, there is a very convenient way to write the one-step estimator, compared to the brute force option of just doing $\hat{\psi}_{os} = \hat{\psi}_{plug-in} + P_n\left[\widehat{\mathbb{IF(\psi^{VTE}})}\right]$. A core property of influence functions is that setting the empirical mean of the EIF to zero and solving for $\psi$ perfectly constructs the one-step estimator, so we can solve $P_n[\widehat{\mathbb{IF}}(\psi)] = 0$, quite convenient because the denominator vanishes:
+$$P_n \Big[ (Y - m(L))(A - g(L)) - \psi^{VTE}(A - g(L))^2 \Big] = 0$$
+$$P_n \Big[ (Y - m(L))(A - g(L)) \Big] = \psi P_n \Big[ (A - g(L))^2 \Big]$$
+$$\hat{\psi}_{os} = \frac{ P_n \Big[ (Y - m(L))(A - g(L)) \Big] }{ P_n \Big[ (A - g(L))^2 \Big] }$$
+:::
+
+:::{.callout-note title="b.6) What is the limiting distribution, as $n \rightarrow \infty$ of this one-step estimator?"}
+By the law of large numbers, as n gets large the empirical averages converge to the expectation, and the estimators for the nuisance functions get closer to their true counterparts. If we look at the numerator:
+$$P_n \Big[ (A-\hat{g}(L))(Y-\hat{m}(L)) \Big] \xrightarrow{p} E[(A-g(L))(Y-m(L))] = E \Big[ Cov(A,Y \mid L) \Big]$$
+Which is exactly the numerator from the parameter! Lets focus now on the denominator:
+$$P_n \Big[ (A - g(L))^2 \Big] \xrightarrow{p} E \Big[ (A - g(L))^2  \big] = E\big[Var(A|L)\big]$$
+
+This effectively proves that when $n \rightarrow \infty$, the one step estimator becomes the true parameter.
+
+:::
+
+
+## References
+GenAI (GEMINI, Claude) was used throughout this problem set to write code, write latex and discuss the problems. I always prompt in a way that the response guides my thinking rather than providing the answer right away, which promotes a better learning experience.
+
+
+::: {#refs}
+:::
+
